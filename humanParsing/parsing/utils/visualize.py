@@ -255,8 +255,41 @@ def visualize_classes_separately(image, prediction, mode="tops", alpha=0.7, max_
     """
     # 모드별 클래스 이름 및 색상 정의
     class_configs = {
+        "model": {
+            "names": [
+                "background", "hair", "face", "neck", "hat",
+                "outer_rsleeve", "outer_lsleeve", "outer_torso",
+                "inner_rsleeve", "inner_lsleeve", "inner_torso",
+                "pants_hip", "pants_rsleeve", "pants_lsleeve",
+                "skirt", "right_arm", "left_arm",
+                "right_shoe", "left_shoe", "right_leg", "left_leg"
+            ],
+            "colors": [
+                (0, 0, 0),  # background: 검정
+                (139, 69, 19),  # hair: 갈색
+                (255, 224, 189),  # face: 살구색
+                (245, 222, 179),  # neck: 연한 살구색
+                (128, 128, 128),  # hat: 회색
+                (0, 255, 0),  # outer_rsleeve: 초록
+                (0, 128, 255),  # outer_lsleeve: 하늘
+                (0, 0, 255),  # outer_torso: 파랑
+                (100, 255, 100),  # inner_rsleeve: 연초록
+                (100, 200, 255),  # inner_lsleeve: 연청색
+                (100, 100, 255),  # inner_torso: 연파랑
+                (255, 255, 0),  # pants_hip: 노랑
+                (255, 0, 255),  # pants_rsleeve: 핑크
+                (200, 0, 255),  # pants_lsleeve: 자주
+                (0, 255, 255),  # skirt: 청록
+                (255, 100, 100),  # right_arm: 연분홍
+                (255, 150, 150),  # left_arm: 살구핑크
+                (255, 0, 0),  # right_shoe: 빨강
+                (200, 0, 0),  # left_shoe: 진홍
+                (255, 165, 0),  # right_leg: 주황
+                (255, 140, 0)  # left_leg: 다크주황
+            ]
+        },
         "tops": {
-            "names": ["배경", "오른소매", "왼소매", "몸통", "몸통(히든)"],
+            "names": ["background", "rsleeve", "lsleeve", "torsho", "top_hidden"],
             "colors": [
                 (0, 0, 0),  # 배경: 검정
                 (0, 255, 0),  # 오른소매: 초록
@@ -266,7 +299,7 @@ def visualize_classes_separately(image, prediction, mode="tops", alpha=0.7, max_
             ]
         },
         "bottoms": {
-            "names": ["배경", "엉덩이", "바지_오른쪽", "바지_왼쪽", "바지(히든)", "치마", "치마(히든)"],
+            "names": ["background", "hip", "pants_rsleeve", "pants_lsleeve", "pants_hidden", "skirt", "skirt_hidden"],
             "colors": [
                 (0, 0, 0),  # 배경: 검정
                 (255, 255, 0),  # 엉덩이: 노랑
@@ -276,20 +309,12 @@ def visualize_classes_separately(image, prediction, mode="tops", alpha=0.7, max_
                 (0, 255, 255),  # 치마: 청록
                 (0, 200, 200)  # 치마(히든): 진청록
             ]
-        },
-        "shoes": {
-            "names": ["배경", "신발", "신발(히든)"],
-            "colors": [
-                (0, 0, 0),  # 배경: 검정
-                (255, 128, 0),  # 신발: 주황
-                (200, 100, 0)  # 신발(히든): 갈색
-            ]
         }
     }
 
     # 현재 모드에 맞는 클래스 설정 가져오기
     if mode not in class_configs:
-        mode = "item"  # 기본값
+        mode = "model"  # 기본값
 
     class_names = class_configs[mode]["names"] if mode in class_configs else ["Background"] + [f"Class {i}" for i in
                                                                                                range(1, max_classes)]

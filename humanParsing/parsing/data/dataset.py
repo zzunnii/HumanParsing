@@ -32,23 +32,6 @@ class Mapping:
         "left_leg": 19
     }
 
-    # 여기서는 product_types를 기준으로 사용 (필요에 따라 main_categories로도 구성 가능)
-    ITEM_CATEGORIES = {
-        "hat": 0,
-        "hat_hidden": 1,
-        "rsleeve": 2,
-        "lsleeve": 3,
-        "torso": 4,
-        "top_hidden": 5,
-        "hip": 6,
-        "pants_rsleeve": 7,
-        "pants_lsleeve": 8,
-        "pants_hidden": 9,
-        "skirt": 10,
-        "skirt_hidden": 11,
-        "shoe": 12,
-        "shoe_hidden": 13
-    }
     TOP_CATEGORIES = {
         # 모자 제외
         "rsleeve": 1,  # 오른쪽 소매
@@ -127,19 +110,6 @@ class PreprocessedDataset(Dataset):
                             binary_mask = cv2.resize(binary_mask, (W, H), interpolation=cv2.INTER_NEAREST)
                         combined_mask[binary_mask > 127] = class_id
 
-            elif self.mode == "item":
-                # 아이템 모드: item_masks 사용
-                for mask_entry in mask_info.get("item_masks", []):
-                    product_type = mask_entry.get("product_type")
-                    class_id = Mapping.ITEM_CATEGORIES.get(product_type, 0)
-
-                    mask_path = mask_entry.get("path", None)
-                    if mask_path and os.path.exists(mask_path):
-                        binary_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-                        if binary_mask.shape != (H, W):
-                            binary_mask = cv2.resize(binary_mask, (W, H), interpolation=cv2.INTER_NEAREST)
-                        combined_mask[binary_mask > 127] = class_id
-
             elif self.mode == "tops":
                 # 상의 모드: 상의 관련 마스크만 처리
                 top_product_types = ["rsleeve", "lsleeve", "torso", "top_hidden"]
@@ -167,23 +137,6 @@ class PreprocessedDataset(Dataset):
                     # 하의 관련 제품인 경우만 처리
                     if product_type in bottom_product_types:
                         class_id = Mapping.BOTTOM_CATEGORIES.get(product_type, 0)
-
-                        mask_path = mask_entry.get("path", None)
-                        if mask_path and os.path.exists(mask_path):
-                            binary_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-                            if binary_mask.shape != (H, W):
-                                binary_mask = cv2.resize(binary_mask, (W, H), interpolation=cv2.INTER_NEAREST)
-                            combined_mask[binary_mask > 127] = class_id
-
-            elif self.mode == "shoes":
-                # 신발 모드: 신발 관련 마스크만 처리
-                shoe_product_types = ["shoe", "shoe_hidden"]
-                for mask_entry in mask_info.get("item_masks", []):
-                    product_type = mask_entry.get("product_type")
-
-                    # 신발 관련 제품인 경우만 처리
-                    if product_type in shoe_product_types:
-                        class_id = Mapping.SHOES_CATEGORIES.get(product_type, 0)
 
                         mask_path = mask_entry.get("path", None)
                         if mask_path and os.path.exists(mask_path):

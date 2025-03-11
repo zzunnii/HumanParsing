@@ -23,7 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train Human Parsing Model')
 
     # 학습 모드 설정 - 대분류 옵션 추가
-    parser.add_argument('--mode-select', type=str, default='bottoms',
+    parser.add_argument('--mode-select', type=str, default='models',
                         choices=['model', 'tops', 'bottoms'],
                         help='Choose training mode: model, tops, bottoms')
 
@@ -39,8 +39,8 @@ def parse_args():
 
     # Data configuration - 전처리된 데이터 경로 사용
     parser.add_argument('--data-root', type=str,
-                        default="C:/Users/tjdwn/OneDrive/Desktop/parsingData/preprocessed",
-                        help='Root directory of preprocessed data')
+                        default="./parsingData/rawdata",
+                        help='Root directory of rawdata data')
 
     # 원본 COCO annotation 파일 대신, 전처리 단계에서 생성한 person 구조를 사용하므로 annotation 파일은 더 이상 필요하지 않을 수 있음.
     parser.add_argument('--mask-dir', type=str, default=None,
