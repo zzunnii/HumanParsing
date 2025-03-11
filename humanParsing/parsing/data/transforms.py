@@ -6,7 +6,7 @@ from albumentations.pytorch import ToTensorV2
 from typing import Dict, Tuple, Optional, List
 
 # 전역 상수 정의
-ENABLE_AUGMENTATION = False  # 데이터 증강 사용 여부를 제어하는 전역 변수
+ENABLE_AUGMENTATION = True  # 데이터 증강 활성화
 
 
 class ParsingTransform:
@@ -19,8 +19,14 @@ class ParsingTransform:
     ):
         if is_train and ENABLE_AUGMENTATION:
             self.transform = A.Compose([
+                # 중앙 기준 확대/축소 (scale_limit: -0.3 ~ 0.3으로 설정, 70%~130% 스케일)
+                A.RandomScale(scale_limit=(0.1, 3.0), interpolation=cv2.INTER_LINEAR, p=0.7),
+                # 중앙에서 크롭하여 원래 크기 유지
+                A.CenterCrop(height=input_size[0], width=input_size[1], p=1.0),
+
+                # 기존 증강 유지
                 A.OneOf([
-                    A.RandomScale(scale_limit=(-0.6, 1.5), p=1.0),
+                    A.RandomScale(scale_limit=(1.0, 1.5), p=1.0),
                     A.Affine(translate_percent=0.2, scale=(0.5, 1.5), rotate=(-45, 45), p=1.0),
                     A.ElasticTransform(alpha=120, sigma=120 * 0.05, p=1.0)
                 ], p=0.7),
@@ -73,7 +79,8 @@ class ParsingTransform:
                 A.RandomShadow(shadow_roi=(0, 0, 1, 1), num_shadows_limit=(1, 3), p=0.3),
                 A.RandomSunFlare(flare_roi=(0, 0, 1, 1), src_radius=150, src_color=(255, 255, 255), p=0.1),
 
-                A.Resize(height=320, width=640),
+                # 최종 크기 조정 (필요 시)
+                A.Resize(height=input_size[0], width=input_size[1]),
                 A.Normalize(mean=mean, std=std),
                 ToTensorV2()
             ], additional_targets={'mask': 'mask'})
@@ -95,18 +102,7 @@ class ParsingTransform:
             image: np.ndarray,
             mask: Optional[np.ndarray] = None
     ) -> Dict[str, torch.Tensor]:
-        """
-        Apply transforms to image and mask.
-
-        Args:
-            image (np.ndarray): Input image
-            mask (np.ndarray, optional): Segmentation mask
-
-        Returns:
-            dict: Transformed image and mask
-        """
         if mask is not None:
-            # Convert to torch tensor and ensure dtype is long
             transformed = self.transform(image=image, mask=mask)
             return {
                 'image': transformed['image'],
@@ -123,18 +119,6 @@ def build_transforms(
         std: Tuple[float, float, float] = (0.229, 0.224, 0.225),
         is_train: bool = True
 ) -> ParsingTransform:
-    """
-    Build transforms for the dataset.
-
-    Args:
-        input_size (tuple): Model input size (height, width)
-        mean (tuple): Normalization mean values
-        std (tuple): Normalization std values
-        is_train (bool): Whether to use training transforms
-
-    Returns:
-        ParsingTransform: Configured transform object
-    """
     return ParsingTransform(
         input_size=input_size,
         mean=mean,

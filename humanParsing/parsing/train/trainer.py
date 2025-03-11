@@ -1,10 +1,9 @@
 import os
 import time
-
 import cv2
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
+from torch.cuda.amp import autocast, GradScaler  # GradScaler는 여기서 가져옴
 from torch.utils.data import DataLoader
 from typing import Dict, Optional, Tuple
 
@@ -39,7 +38,7 @@ class Trainer:
             use_wandb: bool = True,
             wandb_project: str = "human_parsing",
             batch_size: int = 32,
-            mode: str = "item"  # 추가: 기본값은 "item"
+            mode: str = "item"
     ):
         # 기본 모델 및 최적화 설정
         self.model = model.to(device)
@@ -50,6 +49,8 @@ class Trainer:
         self.output_dir = output_dir
         self.visualizer = visualizer
         self.mode = mode
+        self.num_classes = num_classes  # num_classes도 초기화
+
         # 학습 설정
         self.mixed_precision = mixed_precision
         self.gradient_clip_val = gradient_clip_val
@@ -69,32 +70,28 @@ class Trainer:
         self.tb_logger = TensorboardLogger(os.path.join(output_dir, 'tensorboard'))
         self.logger = Logger(name='train', save_dir=output_dir)
 
-        # Mixed precision 설정
-        self.scaler = GradScaler() if mixed_precision else None
+        # Mixed precision 설정 (FutureWarning 해결)
+        self.scaler = torch.amp.GradScaler('cuda') if mixed_precision else None
         self.best_metric = 0.0
+        self.global_step = 0
 
-        self.global_step = 0  # 전역 step 카운터 추가
-        # Wandb 설정
+        # Wandb 설정 (use_wandb 먼저 정의)
         self.use_wandb = use_wandb
+        self.wandb_project = wandb_project  # wandb_project도 저장
         if self.use_wandb:
             try:
                 import wandb
                 self.logger.info("Initializing WandB...")
                 if wandb.run is None:
-                    wandb.init(
-                        project=wandb_project,
-                        config={
-                            "learning_rate": optimizer.param_groups[0]['lr'],
-                            "batch_size": batch_size,
-                            "mixed_precision": mixed_precision,
-                            "model": model.__class__.__name__,
-                            "early_stopping_patience": early_stopping_patience,
-                            "gradient_accumulation_steps": gradient_accumulation_steps
-                        }
-                    )
-                    self.logger.info("WandB initialized successfully")
-                else:
-                    self.logger.info("Using existing WandB run")
+                    wandb.init(project=wandb_project, config={
+                        "learning_rate": optimizer.param_groups[0]['lr'],
+                        "batch_size": batch_size,
+                        "mixed_precision": mixed_precision,
+                        "model": model.__class__.__name__,
+                        "early_stopping_patience": early_stopping_patience,
+                        "gradient_accumulation_steps": gradient_accumulation_steps
+                    })
+                self.logger.info("WandB initialized successfully")
             except Exception as e:
                 self.logger.error(f"Failed to initialize WandB: {str(e)}")
                 self.use_wandb = False
@@ -114,25 +111,19 @@ class Trainer:
 
         while batch is not None:
             data_time.update(time.time() - end)
-
             images = batch['image']
             targets = batch['mask']
 
             if self.mixed_precision:
-                with autocast():
+                with torch.amp.autocast('cuda'):
                     outputs = self.model(images)
                     loss = self.criterion(outputs, targets)
                     loss = loss / self.gradient_accumulation_steps
-
                 self.scaler.scale(loss).backward()
-
                 if (idx + 1) % self.gradient_accumulation_steps == 0:
                     if self.gradient_clip_val is not None:
                         self.scaler.unscale_(self.optimizer)
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(),
-                            self.gradient_clip_val
-                        )
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_val)
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     self.optimizer.zero_grad()
@@ -141,19 +132,14 @@ class Trainer:
                 loss = self.criterion(outputs, targets)
                 loss = loss / self.gradient_accumulation_steps
                 loss.backward()
-
                 if (idx + 1) % self.gradient_accumulation_steps == 0:
                     if self.gradient_clip_val is not None:
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(),
-                            self.gradient_clip_val
-                        )
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip_val)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
 
             predictions = torch.argmax(outputs, dim=1)
             self.metric.update(predictions, targets)
-
             losses.update(loss.item() * self.gradient_accumulation_steps)
             batch_time.update(time.time() - end)
             batch_iou = self.metric.get_scores()
@@ -161,7 +147,6 @@ class Trainer:
             if idx % self.print_freq == 0:
                 current_lr = self.optimizer.param_groups[0]['lr']
                 memory_used = torch.cuda.max_memory_allocated() / (1024 * 1024)
-
                 self.logger.info(
                     f'Epoch: [{epoch}][{idx}/{len(train_loader)}] '
                     f'Time {batch_time.val:.3f} ({batch_time.avg:.3f}) '
@@ -170,11 +155,9 @@ class Trainer:
                     f'Pixel Acc {batch_iou["pixel_acc"]:.4f} '
                     f'LR {current_lr:.2e}'
                 )
-
                 self.tb_logger.log_scalar('train/loss_step', losses.val, self.global_step)
                 self.tb_logger.log_scalar('train/lr', current_lr, self.global_step)
                 self.tb_logger.log_scalar('train/memory', memory_used, self.global_step)
-
                 if self.use_wandb:
                     try:
                         import wandb
@@ -187,7 +170,6 @@ class Trainer:
                         }, step=self.global_step)
                     except Exception as e:
                         self.logger.error(f"Failed to log metrics to WandB: {str(e)}")
-
                 self.global_step += 1
 
             batch = prefetcher.next()
@@ -205,7 +187,6 @@ class Trainer:
         self.model.eval()
         batch_time = AverageMeter()
         losses = AverageMeter()
-
         self.metric.reset()
         end = time.time()
 
@@ -223,46 +204,34 @@ class Trainer:
             batch_time.update(time.time() - end)
 
             if self.visualizer is not None and i == 0:
-                # 기존 시각화 코드 유지
                 vis_img = self.visualizer.visualize_prediction(
                     images[0].cpu(),
                     predictions[0].cpu(),
                     targets[0].cpu()
                 )
-
                 if vis_img is not None and vis_img.ndim == 3 and vis_img.shape[-1] == 3:
                     self.tb_logger.log_image('val/predictions', vis_img, self.global_step)
 
-                    # 클래스별 시각화 추가
-                    from ..utils.visualize import visualize_classes_separately
-
-                    class_vis = visualize_classes_separately(
-                        images[0].cpu(),
-                        predictions[0].cpu(),
-                        mode=self.mode,  # 명시적으로 self.mode 사용 (조건 검사 제거)
-                        alpha=0.7
-                    )
-
-                    if class_vis is not None:
-                        # 결과 저장
-                        save_path = os.path.join(self.output_dir, f'class_vis_epoch{epoch}_batch{i}.jpg')
-                        cv2.imwrite(save_path, cv2.cvtColor(class_vis, cv2.COLOR_RGB2BGR))
-
-                        # 텐서보드에 로깅 (선택 사항)
-                        self.tb_logger.log_image('val/class_predictions', class_vis, self.global_step)
-
-                        # Wandb에 로깅 (선택 사항)
-                        if self.use_wandb:
-                            try:
-                                import wandb
-                                wandb.log({"val/class_predictions": wandb.Image(class_vis)}, step=self.global_step)
-                            except Exception as e:
-                                self.logger.error(f"Failed to log class image to WandB: {str(e)}")
+                class_vis = self.visualizer.visualize_classes_separately(
+                    images[0].cpu(),
+                    predictions[0].cpu(),
+                    alpha=0.7,
+                    max_classes=self.visualizer.num_classes
+                )
+                if class_vis is not None:
+                    save_path = os.path.join(self.output_dir, f'class_vis_epoch{epoch}_batch{i}.jpg')
+                    cv2.imwrite(save_path, cv2.cvtColor(class_vis, cv2.COLOR_RGB2BGR))
+                    self.tb_logger.log_image('val/class_predictions', class_vis, self.global_step)
+                    if self.use_wandb:
+                        try:
+                            import wandb
+                            wandb.log({"val/class_predictions": wandb.Image(class_vis)}, step=self.global_step)
+                        except Exception as e:
+                            self.logger.error(f"Failed to log class image to WandB: {str(e)}")
 
             end = time.time()
 
         scores = self.metric.get_scores()
-
         self.tb_logger.log_scalar('val/loss', losses.avg, self.global_step)
         self.tb_logger.log_scalar('val/miou', scores['mean_iu'], self.global_step)
         self.tb_logger.log_scalar('val/pixel_acc', scores['pixel_acc'], self.global_step)
@@ -273,7 +242,6 @@ class Trainer:
             f'mIoU {scores["mean_iu"]:.4f}\n'
             f'Pixel Acc {scores["pixel_acc"]:.4f}'
         )
-
         return scores
 
     def save_checkpoint(self, epoch: int, metric: float, is_best: bool = False):
@@ -284,12 +252,8 @@ class Trainer:
             'scheduler': self.scheduler.state_dict() if self.scheduler else None,
             'metric': metric
         }
-
-        # 매 에포크마다 저장
         save_path = os.path.join(self.output_dir, f'checkpoint_epoch{epoch}.pth')
         torch.save(state, save_path)
-
-        # 최고 성능 모델 저장
         if is_best:
             best_path = os.path.join(self.output_dir, 'model_best.pth')
             torch.save(state, best_path)
@@ -310,7 +274,6 @@ class Trainer:
             train_scores = self.train_epoch(train_loader, epoch)
             val_scores = self.validate(val_loader, epoch)
 
-            # Wandb 로깅
             if self.use_wandb:
                 try:
                     import wandb
@@ -321,11 +284,10 @@ class Trainer:
                         "val/miou": val_scores["mean_iu"],
                         "val/pixel_acc": val_scores["pixel_acc"],
                         "learning_rate": self.optimizer.param_groups[0]['lr']
-                    }, step=self.global_step)  # 전역 step 사용
+                    }, step=self.global_step)
                 except Exception as e:
                     self.logger.error(f"Failed to log epoch metrics to WandB: {str(e)}")
 
-            # Early stopping 체크
             current_score = val_scores['mean_iu']
             if self.best_score is None:
                 self.best_score = current_score
@@ -340,7 +302,6 @@ class Trainer:
                     self.logger.info('Early stopping triggered')
                     break
 
-            # 체크포인트 저장
             is_best = val_scores['mean_iu'] > self.best_metric
             if is_best:
                 self.best_metric = val_scores['mean_iu']

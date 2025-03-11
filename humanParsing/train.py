@@ -23,7 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train Human Parsing Model')
 
     # 학습 모드 설정 - 대분류 옵션 추가
-    parser.add_argument('--mode-select', type=str, default='models',
+    parser.add_argument('--mode-select', type=str, default='model',
                         choices=['model', 'tops', 'bottoms'],
                         help='Choose training mode: model, tops, bottoms')
 
@@ -39,8 +39,8 @@ def parse_args():
 
     # Data configuration - 전처리된 데이터 경로 사용
     parser.add_argument('--data-root', type=str,
-                        default="./parsingData/rawdata",
-                        help='Root directory of rawdata data')
+                        default="./parsingData/preprocessed",
+                        help='Root directory of preprocessed data')
 
     # 원본 COCO annotation 파일 대신, 전처리 단계에서 생성한 person 구조를 사용하므로 annotation 파일은 더 이상 필요하지 않을 수 있음.
     parser.add_argument('--mask-dir', type=str, default=None,
@@ -135,7 +135,7 @@ def configure_args_by_mode(args):
     """모드에 따라 인자 자동 설정"""
     # 모드별 클래스 수 설정
     if args.mode_select == 'model':
-        args.num_classes = 20
+        args.num_classes = 21
         args.train_dir = f"{args.data_root}/model/train"
         args.val_dir = f"{args.data_root}/model/val"
     elif args.mode_select == 'tops':
@@ -159,12 +159,11 @@ def configure_args_by_mode(args):
         elif args.mode_select == 'bottoms':
             args.class_weights = "0.1,2.0,2.0,2.0"  # 배경,엉덩이,바지,스커트
         elif args.mode_select == 'model':
-            # 배경 가중치 낮게, 나머지 클래스 가중치 높게
-            weights = ["0.1"] + ["2.0"] * 19
+            weights = ["0.1"] + ["2.0"] + ["2.0"] * 19  # 배경(0.1), 머리카락(3.0), 나머지(2.0)
             args.class_weights = ",".join(weights)
 
 
-def get_subset_indices(dataset_size, subset_size=1000):
+def get_subset_indices(dataset_size, subset_size=100):
     """Get random subset of indices"""
     indices = np.random.permutation(dataset_size)[:subset_size]
     return indices
@@ -191,60 +190,47 @@ def get_class_weights(class_weights_str, num_classes):
 
     return torch.tensor(weights)
 
-
 def train_single_model(args):
-    """단일 모델 학습 함수"""
-    # Set random seed
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(args.seed)
 
-    # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
-
-    # Initialize logger
-    logger = Logger(
-        name='train',
-        save_dir=args.output_dir
-    )
+    logger = Logger(name='train', save_dir=args.output_dir)
     logger.info(f'Arguments: {args}')
-
-    # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}')
 
-    # Build transforms
     train_transform = build_transforms(is_train=True)
     val_transform = build_transforms(is_train=False)
 
-    # Build datasets
+    # quick-test 모드에서 subset_size 설정
+    train_subset_size = 100 if args.quick_test else None
+    val_subset_size = 20 if args.quick_test else None
+
     train_dataset = build_dataset(
         data_dir=args.train_dir,
         transforms=train_transform,
         split='train',
-        mode=args.mode_select
+        mode=args.mode_select,
+        quick_test=args.quick_test,
+        subset_size=train_subset_size,
+        filter_empty=True
     )
 
     val_dataset = build_dataset(
         data_dir=args.val_dir,
         transforms=val_transform,
         split='val',
-        mode=args.mode_select
+        mode=args.mode_select,
+        quick_test=args.quick_test,
+        subset_size=val_subset_size,
+        filter_empty=True
     )
 
-    # Quick test 모드일 때 데이터셋 크기 제한
-    if args.quick_test:
-        logger.info("Using quick test mode with reduced dataset")
-        train_dataset = Subset(
-            train_dataset,
-            get_subset_indices(len(train_dataset), 100)
-        )
-        val_dataset = Subset(
-            val_dataset,
-            get_subset_indices(len(val_dataset), 20)
-        )
+    logger.info(f"Train dataset size: {len(train_dataset)}")
+    logger.info(f"Val dataset size: {len(val_dataset)}")
 
-    # Build dataloaders
     train_loader = build_dataloader(
         dataset=train_dataset,
         batch_size=args.batch_size,
