@@ -3,7 +3,6 @@ from torch.utils.data import DataLoader
 from typing import Dict, Optional, Union
 from .dataset import PreprocessedDataset
 # TrainConfig를 import 합니다.
-from ..configs.train_config import TrainConfig
 def worker_init_fn(worker_id: int) -> None:
     """Initialize worker with different random seed."""
     worker_seed = torch.initial_seed() % 2 ** 32
@@ -14,8 +13,8 @@ def worker_init_fn(worker_id: int) -> None:
 
 def build_dataloader(
         dataset: PreprocessedDataset,
-        batch_size: int = None,
-        num_workers: int = None,
+        batch_size: int,
+        num_workers: int,
         shuffle: bool = True,
         pin_memory: bool = True,
         drop_last: bool = False,
@@ -23,19 +22,12 @@ def build_dataloader(
         prefetch_factor: int = 2,
 ) -> DataLoader:
     """
-    Build dataloader for the parsing dataset.
-
-    Defaults for batch_size and num_workers are taken from TrainConfig.
+    TrainConfig 대신 args에서 받은 값을 사용하여 dataloader를 구성
     """
-    if batch_size is None:
-        batch_size = TrainConfig.BATCH_SIZE
-    if num_workers is None:
-        num_workers = TrainConfig.NUM_WORKERS
-
     return DataLoader(
         dataset=dataset,
-        batch_size=batch_size,
-        num_workers=num_workers,
+        batch_size=batch_size,   # TrainConfig가 아닌 args에서 받은 값 사용
+        num_workers=num_workers, # TrainConfig가 아닌 args에서 받은 값 사용
         shuffle=shuffle,
         pin_memory=pin_memory,
         drop_last=drop_last,

@@ -6,20 +6,20 @@ import numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 
-from parsing.models import ParsingModel
-from parsing.data import build_dataset, build_transforms, build_dataloader
-from parsing.utils import Logger, Visualizer, SegmentationMetric
+from .models import ParsingModel
+from .data import build_dataset, build_transforms, build_dataloader
+from .utils import Logger, Visualizer, SegmentationMetric
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Test Human Parsing Model')
 
     # Basic configuration
-    parser.add_argument('--test-dir', type=str, default="./parsingData/rawdata/item/test",
+    parser.add_argument('--test-dir', type=str, default="C:/Users/tjdwn/OneDrive/Desktop/parsingData/preprocessed/item/test",
                         help='Preprocessed test data directory')
     parser.add_argument('--output-dir', type=str, default='test_results',
                         help='Directory to save test results')
-    parser.add_argument('--checkpoint', type=str, required=True,
+    parser.add_argument('--checkpoint', type=str, default=r"C:\Users\tjdwn\GitHub\virtualTryOn\humanParsing\output\tops_20250309_215712\checkpoint_epoch17.pth",
                         help='Path to model checkpoint')
 
     # Model configuration

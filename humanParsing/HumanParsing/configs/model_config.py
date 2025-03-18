@@ -8,8 +8,7 @@ class ModelConfig:
 
     # 모델 파싱 클래스
     MODEL_CLASSES = 20  # 신체/의류 클래스
-    TOPS_CLASSEs = 5
-    BOTTOMS_CLASSES = 7
+    ITEM_CLASSES = 14  # 아이템 클래스
 
     # UPerNet 설정
     UPERNET_CHANNELS = 512
@@ -20,4 +19,3 @@ class ModelConfig:
     # 디코더 설정
     DECODER_CHANNELS = 256
     DECODER_DROPOUT = 0.1
-

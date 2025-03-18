@@ -27,7 +27,7 @@ def create_directory_structure(config: Config):
 
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
-        print(f"디렉토리 생성 완료: {directory}")
+        print(f"✅ 디렉토리 생성 완료: {directory}")
 
 
 def backup_existing_data(config: Config):
@@ -36,30 +36,30 @@ def backup_existing_data(config: Config):
         backup_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_dir = f"{config.PROCESSED_DATA_ROOT}_backup_{backup_time}"
         shutil.move(config.PROCESSED_DATA_ROOT, backup_dir)
-        print(f"기존 데이터 백업 완료: {backup_dir}")
+        print(f"⚠️ 기존 데이터 백업 완료: {backup_dir}")
 
 
 def main():
     """전처리 파이프라인 실행"""
     start_time = time.time()
-    print(f"\n전처리 파이프라인 시작 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\n🚀 전처리 파이프라인 시작 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     try:
         # 1. 기존 데이터 백업
-        print("\n1기존 데이터 백업 중...")
+        print("\n1️⃣ 기존 데이터 백업 중...")
         backup_existing_data(Config)
 
         # 2. 디렉토리 구조 생성
-        print("\n디렉토리 구조 생성 중...")
+        print("\n2️⃣ 디렉토리 구조 생성 중...")
         create_directory_structure(Config)
 
         # 3. Raw Data를 Person 구조로 변환 (모델과 아이템을 개별 작업으로 처리)
-        print("\nRaw Data를 Person 구조로 변환 중...")
+        print("\n3️⃣ Raw Data를 Person 구조로 변환 중...")
         person_results = convert_to_person_structure(Config)
         # person_results: { "model": { "train": [...], "val": [...], "test": [...] },
         #                   "item": { "train": [...], "val": [...], "test": [...] } }
 
         # 4. 마스크 생성 (모델/아이템 별로 처리)
-        print("\n마스크 생성 중...")
+        print("\n4️⃣ 마스크 생성 중...")
         mask_results = generate_masks(Config)
         # mask_results 또한 { "model": { "train": [...], ... }, "item": { "train": [...], ... } } 형태로 반환
 
@@ -70,12 +70,12 @@ def main():
         minutes = int((duration % 3600) // 60)
         seconds = int(duration % 60)
 
-        print("\n전처리 파이프라인 완료!")
-        print(f"총 처리 시간: {hours}시간 {minutes}분 {seconds}초")
-        print(f"종료 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("\n✨ 전처리 파이프라인 완료!")
+        print(f"⏱️ 총 처리 시간: {hours}시간 {minutes}분 {seconds}초")
+        print(f"🏁 종료 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         # 결과 요약
-        print("\n처리 결과 요약:")
+        print("\n📊 처리 결과 요약:")
 
         # 모델 데이터 결과 요약
         print("\n[MODEL 데이터]")
@@ -107,10 +107,10 @@ def main():
             print(f"  - Person 변환: {success}/{total} ({percentage:.2f}%)")
             print(f"  - 마스크 생성: {mask_success}/{mask_total} ({mask_percentage:.2f}%)")
 
-        print(f"\n처리된 데이터 저장 위치: {Config.PROCESSED_DATA_ROOT}")
+        print(f"\n📁 처리된 데이터 저장 위치: {Config.PROCESSED_DATA_ROOT}")
 
     except Exception as e:
-        print(f"\n오류 발생: {str(e)}")
+        print(f"\n❌ 오류 발생: {str(e)}")
         raise e
 
 

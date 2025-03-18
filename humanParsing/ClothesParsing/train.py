@@ -13,18 +13,18 @@ from torch.utils.data import DataLoader, Subset
 from pathlib import Path
 
 # 현재 디렉토리 구조에 맞게 수정
-from parsing.models import ParsingModel
-from parsing.data import build_dataset, build_transforms, build_dataloader
-from parsing.train import build_criterion, build_optimizer, build_scheduler, Trainer
-from parsing.utils import Logger, Visualizer
+from .models import ParsingModel
+from .data import build_dataset, build_transforms, build_dataloader
+from .train import build_criterion, build_optimizer, build_scheduler, Trainer
+from .utils import Logger, Visualizer
 import datetime
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train Human Parsing Model')
 
     # 학습 모드 설정 - 대분류 옵션 추가
-    parser.add_argument('--mode-select', type=str, default='model',
-                        choices=['model', 'tops', 'bottoms'],
+    parser.add_argument('--mode-select', type=str, default='tops',
+                        choices=['tops', 'bottoms'],
                         help='Choose training mode: model, tops, bottoms')
 
     # 기본 설정에 quick test 옵션 추가
@@ -39,7 +39,7 @@ def parse_args():
 
     # Data configuration - 전처리된 데이터 경로 사용
     parser.add_argument('--data-root', type=str,
-                        default="./parsingData/preprocessed",
+                        default="C:/Users/tjdwn/OneDrive/Desktop/parsingData/preprocessed",
                         help='Root directory of preprocessed data')
 
     # 원본 COCO annotation 파일 대신, 전처리 단계에서 생성한 person 구조를 사용하므로 annotation 파일은 더 이상 필요하지 않을 수 있음.
@@ -62,11 +62,11 @@ def parse_args():
     # Training configuration
     parser.add_argument('--epochs', type=int, default=100,
                         help='Number of epochs')
-    parser.add_argument('--batch-size', type=int, default=4,
+    parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size')
     parser.add_argument('--num-workers', type=int, default=4,
                         help='Number of data loading workers')
-    parser.add_argument('--lr', type=float, default=1e-5,
+    parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=0.01,
                         help='Weight decay')
@@ -124,7 +124,7 @@ def parse_args():
     # Quick test 모드일 때 설정 자동 조정
     if args.quick_test:
         args.batch_size = 4
-        args.epochs = 3
+        args.epochs = 100
         args.gradient_accumulation_steps = 1
         args.num_workers = 4
 
@@ -132,18 +132,14 @@ def parse_args():
 
 
 def configure_args_by_mode(args):
-    """모드에 따라 인자 자동 설정"""
-    # 모드별 클래스 수 설정
-    if args.mode_select == 'model':
-        args.num_classes = 21
-        args.train_dir = f"{args.data_root}/model/train"
-        args.val_dir = f"{args.data_root}/model/val"
-    elif args.mode_select == 'tops':
-        args.num_classes = 5  # 배경 + 모자 + 소매 + 몸통
+
+    if args.mode_select == 'tops':
+        args.num_classes = 5
         args.train_dir = f"{args.data_root}/item/train"
         args.val_dir = f"{args.data_root}/item/val"
+
     elif args.mode_select == 'bottoms':
-        args.num_classes = 7  # 배경 + 엉덩이 + 바지 + 스커트
+        args.num_classes = 7
         args.train_dir = f"{args.data_root}/item/train"
         args.val_dir = f"{args.data_root}/item/val"
 
@@ -152,16 +148,26 @@ def configure_args_by_mode(args):
     if args.output_dir is None:
         args.output_dir = f"output/{args.mode_select}_{timestamp}"
 
-    # 클래스 가중치 설정
-    if args.class_weights is None:
-        if args.mode_select == 'tops':
-            args.class_weights = "0.1,2.0,2.0,2.0"  # 배경,모자,소매,몸통
-        elif args.mode_select == 'bottoms':
-            args.class_weights = "0.1,2.0,2.0,2.0"  # 배경,엉덩이,바지,스커트
-        elif args.mode_select == 'model':
-            weights = ["0.1"] + ["2.0"] + ["2.0"] * 19  # 배경(0.1), 머리카락(3.0), 나머지(2.0)
-            args.class_weights = ",".join(weights)
+def calculate_class_weights(dataset, num_classes):
+    """데이터셋에서 클래스별 픽셀 빈도를 계산해 가중치 생성"""
+    class_counts = torch.zeros(num_classes, dtype=torch.float32)
+    total_pixels = 0
 
+    # 데이터셋의 모든 샘플에서 클래스 빈도 계산
+    for i in range(len(dataset)):
+        mask = dataset[i]['mask'].flatten()
+        for cls in range(num_classes):
+            class_counts[cls] += (mask == cls).sum().item()
+        total_pixels += mask.numel()
+
+    # 빈도가 0인 클래스에 대해 작은 값을 추가해 0으로 나누기 방지
+    class_counts = class_counts + 1e-6
+    # 클래스 빈도의 역수를 가중치로 사용
+    class_weights = 1.0 / class_counts
+    # 가중치를 정규화 (합이 num_classes가 되도록)
+    class_weights = class_weights / class_weights.sum() * num_classes
+    # args.class_weights 형식에 맞게 문자열로 변환
+    return ",".join(map(str, class_weights.tolist()))
 
 def get_subset_indices(dataset_size, subset_size=100):
     """Get random subset of indices"""
@@ -169,26 +175,6 @@ def get_subset_indices(dataset_size, subset_size=100):
     return indices
 
 
-def get_class_weights(class_weights_str, num_classes):
-    """문자열 형태의 클래스 가중치를 파싱하여 텐서로 변환"""
-    if class_weights_str is None:
-        return None
-
-    weights = [float(w) for w in class_weights_str.split(',')]
-
-    # 가중치 개수가 클래스 수와 다르면 경고 출력
-    if len(weights) != num_classes:
-        print(f"Warning: Number of class weights ({len(weights)}) does not match number of classes ({num_classes})")
-
-        # 필요하면 가중치를 확장하거나 축소
-        if len(weights) < num_classes:
-            # 부족한 가중치는 마지막 가중치로 채움
-            weights.extend([weights[-1]] * (num_classes - len(weights)))
-        else:
-            # 초과 가중치는 잘라냄
-            weights = weights[:num_classes]
-
-    return torch.tensor(weights)
 
 def train_single_model(args):
     torch.manual_seed(args.seed)
@@ -201,13 +187,14 @@ def train_single_model(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}')
 
-    train_transform = build_transforms(is_train=True)
+    train_transform = build_transforms(is_train=False)
     val_transform = build_transforms(is_train=False)
 
     # quick-test 모드에서 subset_size 설정
-    train_subset_size = 100 if args.quick_test else None
-    val_subset_size = 20 if args.quick_test else None
+    train_subset_size = 1000 if args.quick_test else None
+    val_subset_size = 100 if args.quick_test else None
 
+    # 학습 데이터셋 생성
     train_dataset = build_dataset(
         data_dir=args.train_dir,
         transforms=train_transform,
@@ -231,13 +218,17 @@ def train_single_model(args):
     logger.info(f"Train dataset size: {len(train_dataset)}")
     logger.info(f"Val dataset size: {len(val_dataset)}")
 
+    # 클래스 가중치 동적 계산
+    if args.class_weights is None:  # 기본 가중치가 설정되지 않은 경우에만 계산
+        args.class_weights = calculate_class_weights(train_dataset, args.num_classes)
+
     train_loader = build_dataloader(
         dataset=train_dataset,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         shuffle=True,
         pin_memory=True,
-        prefetch_factor=2,
+        prefetch_factor=1,
         persistent_workers=args.num_workers > 0
     )
 
@@ -247,14 +238,10 @@ def train_single_model(args):
         num_workers=args.num_workers,
         shuffle=False,
         pin_memory=True,
-        prefetch_factor=2,
+        prefetch_factor=1,
         persistent_workers=args.num_workers > 0
     )
-    for i in range(min(5, len(val_dataset))):
-        sample = val_dataset[i]
-        mask = sample['mask']
-        unique_classes = torch.unique(mask)
-        print(f"Sample {i} contains classes: {unique_classes.tolist()}")
+
     # Build model
     model = ParsingModel(
         num_classes=args.num_classes,
@@ -263,18 +250,12 @@ def train_single_model(args):
         decoder_channels=args.decoder_channels
     )
 
-    # Parse class weights
-    class_weights = get_class_weights(args.class_weights, args.num_classes)
-    if class_weights is not None:
-        class_weights = class_weights.to(device)  # 디바이스로 이동
-
-    # Build criterion, optimizer, scheduler
+    # Build criterion
     criterion = build_criterion(
         num_classes=args.num_classes,
         ce_weight=args.ce_weight,
         dice_weight=args.dice_weight,
         focal_weight=args.focal_weight,
-        class_weights=class_weights.tolist() if class_weights is not None else None
     )
 
     optimizer = build_optimizer(
@@ -285,15 +266,15 @@ def train_single_model(args):
         backbone_lr_factor=0.1
     )
 
-    # 스케줄러 선택
+    # 스케줄러 설정 (기존 코드 유지)
     if args.scheduler == 'onecycle':
         scheduler = build_scheduler(
             optimizer=optimizer,
             name='onecycle',
             epochs=args.epochs,
             steps_per_epoch=len(train_loader),
-            warmup_epochs=0,  # onecycle은 자체 warmup이 있으므로 0으로 설정
-            max_lr=args.lr * 10,
+            warmup_epochs=0,
+            max_lr=3e-4,
             pct_start=0.3,
             div_factor=25.0,
             final_div_factor=1000.0
@@ -307,10 +288,8 @@ def train_single_model(args):
             min_lr=args.min_lr
         )
 
-    # 시각화 도구 설정
     visualizer = Visualizer(num_classes=args.num_classes)
 
-    # 트레이너 설정
     trainer = Trainer(
         model=model,
         criterion=criterion,
@@ -328,10 +307,9 @@ def train_single_model(args):
         use_wandb=args.use_wandb,
         wandb_project=args.wandb_project,
         batch_size=args.batch_size,
-        mode=args.mode_select  # 현재 선택된 모드 전달
+        mode=args.mode_select
     )
 
-    # 학습 실행
     trainer.train(
         train_loader=train_loader,
         val_loader=val_loader,
@@ -354,63 +332,10 @@ def train_single_model(args):
     return training_info
 
 
-def train_all_categories(base_args):
-    """모든 카테고리 모델을 순차적으로 학습"""
-    categories = ['tops', 'bottoms', 'shoes']
-    results = {}
-
-    # 각 카테고리별 학습 실행
-    for category in categories:
-        print(f"\n{'=' * 50}")
-        print(f"Training {category.upper()} model...")
-        print(f"{'=' * 50}\n")
-
-        # 새로운 args 객체 생성 (기존 설정 유지하면서 카테고리만 변경)
-        category_args = argparse.Namespace(**vars(base_args))
-        category_args.mode_select = category
-
-        # 카테고리별 출력 디렉토리 설정
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        category_args.output_dir = f"output/{category}_{timestamp}"
-
-        # 카테고리에 맞게 설정 자동 구성
-        configure_args_by_mode(category_args)
-
-        # 학습 실행
-        try:
-            result = train_single_model(category_args)
-            results[category] = result
-        except Exception as e:
-            print(f"Error training {category} model: {e}")
-            results[category] = {'error': str(e), 'completed': False}
-
-    # 학습 결과 요약
-    print("\n" + "=" * 50)
-    print("Training Summary")
-    print("=" * 50)
-
-    for category, result in results.items():
-        if result.get('completed', False):
-            print(f"{category.upper()}: Best metric = {result.get('final_metrics', 'N/A')}")
-        else:
-            print(f"{category.upper()}: Failed - {result.get('error', 'Unknown error')}")
-
-    # 결과 저장
-    with open('auto_training_results.json', 'w') as f:
-        json.dump(results, f, indent=2)
-
-    return results
-
 
 def main():
     args = parse_args()
-
-    if args.mode_select == 'auto':
-        # 자동 모드: 모든 카테고리 순차 학습
-        train_all_categories(args)
-    else:
-        # 일반 모드: 단일 모델 학습
-        train_single_model(args)
+    train_single_model(args)
 
 
 if __name__ == '__main__':

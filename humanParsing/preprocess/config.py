@@ -3,28 +3,28 @@ class Config:
     RAW_DATA = {
         "train": {
             "model": {
-                "parse": r".\parsingData\data\1.Training\label\Model-Parse",
-                "image": r".\parsingData\data\1.Training\original\Model-Image"
+                "parse": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\1.Training\label\Model-Parse",
+                "image": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\1.Training\original\Model-Image"
             },
             "item": {
-                "parse": r".\parsingData\data\1.Training\label\Item-Parse",
-                "image": r".\parsingData\data\1.Training\original\Item-Image"
+                "parse": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\1.Training\label\Item-Parse",
+                "image": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\1.Training\original\Item-Image"
             }
         },
         "val": {
             "model": {
-                "parse": r".\parsingData\data\2.Validation\label\Model-Parse",
-                "image": r".\parsingData\data\2.Validation\original\Model-Image"
+                "parse": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\2.Validation\label\Model-Parse",
+                "image": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\2.Validation\original\Model-Image"
             },
             "item": {
-                "parse": r".\parsingData\data\2.Validation\label\Item-Parse",
-                "image": r".\parsingData\data\2.Validation\original\Item-Image"
+                "parse": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\2.Validation\label\Item-Parse",
+                "image": r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\data\2.Validation\original\Item-Image"
             }
         }
     }
 
     # 전처리된 데이터 저장 경로
-    PROCESSED_DATA_ROOT = r".\parsingData\preprocessed"
+    PROCESSED_DATA_ROOT = r"C:\Users\tjdwn\OneDrive\Desktop\parsingData\preprocessed"
 
     # 전처리된 데이터 구조
     PROCESSED_DATA = {

@@ -165,7 +165,7 @@ def generate_masks(config: object) -> Dict:
         for split in ["train", "val", "test"]:
             person_root = config.PROCESSED_DATA[type_][split]
             if not os.path.exists(person_root):
-                print(f"Warning: Person directory not found: {person_root}")
+                print(f"⚠️ Warning: Person directory not found: {person_root}")
                 continue
 
             person_dirs = [d for d in os.listdir(person_root) if os.path.isdir(os.path.join(person_root, d))]
@@ -189,7 +189,7 @@ def generate_masks(config: object) -> Dict:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2)
     except Exception as e:
-        print(f"Error saving results: {e}")
+        print(f"❌ Error saving results: {e}")
 
     return results
 

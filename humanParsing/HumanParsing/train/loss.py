@@ -75,9 +75,7 @@ class DiceLoss(nn.Module):
             cardinality = torch.sum(probs + targets_binary, dims)
             dice_score = (2. * intersection + self.smooth) / (cardinality + self.smooth)
 
-            # 음수 방지를 위해 최소값 0으로 제한
-            dice_loss = 1 - dice_score
-            return torch.clamp(dice_loss, min=0.0)
+            return 1 - dice_score
         else:
             # For multi-class segmentation
             # Convert targets to one-hot encoding
@@ -94,19 +92,14 @@ class DiceLoss(nn.Module):
             dims = (0, 2, 3)  # Sum over batch, height, width
             intersection = torch.sum(probs * targets_one_hot, dims)
             cardinality = torch.sum(probs + targets_one_hot, dims)
-
-            # Clamp cardinality to avoid division by zero
-            cardinality = torch.clamp(cardinality, min=self.smooth)
-
             dice_scores = (2. * intersection + self.smooth) / (cardinality + self.smooth)
 
             # Apply class weights if specified
             if self.weight is not None:
                 dice_scores = dice_scores * self.weight.to(dice_scores.device)
 
-            # 음수 방지를 위해 최소값 0으로 제한
-            dice_loss = 1 - dice_scores.mean()
-            return torch.clamp(dice_loss, min=0.0)
+            # Return mean Dice loss over classes
+            return 1 - dice_scores.mean()
 
 
 class FocalLoss(nn.Module):
@@ -314,8 +307,6 @@ class LovaszLoss(nn.Module):
         gts = gt_sorted.sum()
         intersection = gts - gt_sorted.float().cumsum(0)
         union = gts + (1 - gt_sorted).float().cumsum(0)
-        # 0으로 나누는 것을 방지
-        union = torch.clamp(union, min=1e-6)
         iou = 1.0 - intersection / union
 
         # Extended to handle case where every prediction is correct
@@ -350,9 +341,7 @@ class LovaszLoss(nn.Module):
             losses.append(loss)
 
         if len(losses) > 0:
-            result = torch.stack(losses).mean() if self.per_class else sum(losses)
-            # 음수 방지
-            return torch.clamp(result, min=0.0)
+            return torch.stack(losses).mean() if self.per_class else sum(losses)
         else:
             return torch.tensor(0.0, device=probs.device, requires_grad=True)
 
@@ -401,116 +390,102 @@ class CombinedLoss(nn.Module):
     ):
         """
         Initialize CombinedLoss.
+
+        Args:
+            num_classes (int): Number of classes
+            ce_weight (float): Weight for CrossEntropy loss
+            dice_weight (float): Weight for Dice loss
+            focal_weight (float): Weight for Focal loss
+            boundary_weight (float): Weight for Boundary loss
+            lovasz_weight (float): Weight for Lovasz loss
+            class_weights (list/tensor): Class weights
+            ignore_index (int): Index to ignore
+            focal_gamma (float): Focusing parameter for Focal loss
+            dice_smooth (float): Smoothing factor for Dice loss
+            boundary_theta0 (float): Internal boundary width parameter
+            boundary_theta (float): External boundary width parameter
         """
         super().__init__()
 
-        # 클래스 가중치 변환 및 저장 (나중에 디바이스로 이동)
         if class_weights is not None:
             if isinstance(class_weights, list):
-                self.class_weights = torch.tensor(class_weights)
-            else:
-                self.class_weights = class_weights.clone()
-            self.class_weights = self.class_weights.float()
-        else:
-            self.class_weights = None
+                class_weights = torch.tensor(class_weights)
+            class_weights = class_weights.float()
 
-        # 가중치 필드 초기화
-        self.ce_weight = ce_weight
-        self.dice_weight = dice_weight
-        self.focal_weight = focal_weight
-        self.boundary_weight = boundary_weight
-        self.lovasz_weight = lovasz_weight
-        self.ignore_index = ignore_index
-        self.num_classes = num_classes
-
-        # 손실 함수 컴포넌트 초기화
         self.cross_entropy = nn.CrossEntropyLoss(
-            weight=None,  # 가중치는 forward에서 설정
-            ignore_index=ignore_index,
-            reduction='mean'
+            weight=class_weights,
+            ignore_index=ignore_index
         ) if ce_weight > 0 else None
 
         self.dice = DiceLoss(
             smooth=dice_smooth,
             ignore_index=ignore_index,
-            weight=None,  # 가중치는 forward에서 설정
-            mode='multiclass'
+            weight=class_weights
         ) if dice_weight > 0 else None
 
         self.focal = FocalLoss(
-            alpha=None,  # 가중치는 forward에서 설정
+            alpha=class_weights,
             gamma=focal_gamma,
-            ignore_index=ignore_index,
-            reduction='mean'
+            ignore_index=ignore_index
         ) if focal_weight > 0 else None
 
         self.boundary = BoundaryLoss(
             theta0=boundary_theta0,
             theta=boundary_theta,
             ignore_index=ignore_index,
-            weight=None  # 가중치는 forward에서 설정
+            weight=class_weights
         ) if boundary_weight > 0 else None
 
         self.lovasz = LovaszLoss(
-            ignore_index=ignore_index,
-            per_class=False
+            ignore_index=ignore_index
         ) if lovasz_weight > 0 else None
 
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """
-        Compute combined loss with debugging information.
-        """
-        # 디바이스 가져오기
-        device = logits.device
+        self.ce_weight = ce_weight
+        self.dice_weight = dice_weight
+        self.focal_weight = focal_weight
+        self.boundary_weight = boundary_weight
+        self.lovasz_weight = lovasz_weight
 
-        # 클래스 가중치를 현재 디바이스로 이동
-        class_weights_device = self.class_weights.to(device) if self.class_weights is not None else None
+        self.num_losses = sum(w > 0 for w in [ce_weight, dice_weight, focal_weight, boundary_weight, lovasz_weight])
 
+    def forward(
+            self,
+            logits: torch.Tensor,
+            targets: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute combined loss.
+
+        Args:
+            logits (tensor): Raw predictions (B, C, H, W)
+            targets (tensor): Ground truth labels (B, H, W)
+
+        Returns:
+            tensor: Combined loss value
+        """
         loss = 0
-        loss_components = {}
 
         if self.cross_entropy is not None:
-            # CrossEntropy 손실 계산
-            self.cross_entropy.weight = class_weights_device
             ce_loss = self.ce_weight * self.cross_entropy(logits, targets)
             loss += ce_loss
-            loss_components['ce'] = ce_loss.item()
 
         if self.dice is not None:
-            # Dice 손실 계산
-            if hasattr(self.dice, 'weight'):
-                self.dice.weight = class_weights_device
             dice_loss = self.dice_weight * self.dice(logits, targets)
             loss += dice_loss
-            loss_components['dice'] = dice_loss.item()
 
         if self.focal is not None:
-            # Focal 손실 계산
-            if hasattr(self.focal, 'alpha'):
-                self.focal.alpha = class_weights_device
             focal_loss = self.focal_weight * self.focal(logits, targets)
             loss += focal_loss
-            loss_components['focal'] = focal_loss.item()
 
         if self.boundary is not None:
-            # Boundary 손실 계산
-            if hasattr(self.boundary, 'weight'):
-                self.boundary.weight = class_weights_device
             boundary_loss = self.boundary_weight * self.boundary(logits, targets)
             loss += boundary_loss
-            loss_components['boundary'] = boundary_loss.item()
 
         if self.lovasz is not None:
-            # Lovasz 손실 계산
             lovasz_loss = self.lovasz_weight * self.lovasz(logits, targets)
             loss += lovasz_loss
-            loss_components['lovasz'] = lovasz_loss.item()
 
-        # 디버깅을 위한 출력 (필요시)
-        # print(f"Loss components: {loss_components}, Total: {loss.item()}")
-
-        # 최종 손실이 음수가 나오지 않도록 클램핑
-        return torch.clamp(loss, min=0.0)
+        return loss
 
 
 def build_criterion(
@@ -521,7 +496,6 @@ def build_criterion(
         boundary_weight: float = 0.0,
         lovasz_weight: float = 0.0,
         class_weights: Optional[List[float]] = None,
-        ignore_index: int = 255,
         **kwargs
 ) -> nn.Module:
     """
@@ -535,7 +509,6 @@ def build_criterion(
         boundary_weight (float): Weight for Boundary loss
         lovasz_weight (float): Weight for Lovasz loss
         class_weights (list): Class weights
-        ignore_index (int): Index to ignore in loss calculation
         **kwargs: Additional parameters
 
     Returns:
@@ -549,6 +522,5 @@ def build_criterion(
         boundary_weight=boundary_weight,
         lovasz_weight=lovasz_weight,
         class_weights=class_weights,
-        ignore_index=ignore_index,
         **kwargs
     )

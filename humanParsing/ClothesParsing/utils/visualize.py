@@ -34,19 +34,19 @@ class Visualizer:
             "face": (255, 224, 189),
             "neck": (245, 222, 179),
             "hat": (128, 128, 128),
-            "outer_rsleeve": (0, 255, 0),
-            "outer_lsleeve": (0, 128, 255),
-            "outer_torso": (0, 0, 255),
+            "outer_rsleeve": (0, 230, 0),  # Modified
+            "outer_lsleeve": (0, 100, 230),  # Modified
+            "outer_torso": (0, 0, 230),  # Modified
             "inner_rsleeve": (100, 255, 100),
             "inner_lsleeve": (100, 200, 255),
             "inner_torso": (100, 100, 255),
-            "pants_hip": (255, 255, 0),
+            "pants_hip": (230, 230, 0),  # Modified
             "right_arm": (255, 100, 100),
             "left_arm": (255, 150, 150),
-            "right_shoe": (255, 0, 0),
-            "left_shoe": (200, 0, 0),
             "right_leg": (255, 165, 0),
-            "left_leg": (255, 140, 0)
+            "left_leg": (255, 140, 0),
+            "right_shoe": (180, 50, 50),
+            "left_shoe": (180, 0, 50),
         }
 
         self.class_configs = {
@@ -55,7 +55,8 @@ class Visualizer:
                 "default_max_classes": 5
             },
             "bottoms": {
-                "names": ["background", "hip", "pants_rsleeve", "pants_lsleeve", "pants_hidden", "skirt", "skirt_hidden"],
+                "names": ["background", "hip", "pants_rsleeve", "pants_lsleeve", "pants_hidden", "skirt",
+                          "skirt_hidden"],
                 "default_max_classes": 7
             },
             "model": {
@@ -65,9 +66,10 @@ class Visualizer:
                     "inner_rsleeve", "inner_lsleeve", "inner_torso",
                     "pants_hip", "pants_rsleeve", "pants_lsleeve",
                     "skirt", "right_arm", "left_arm",
-                    "right_shoe", "left_shoe", "right_leg", "left_leg"
+                    "right_shoe", "left_shoe",  # 추가
+                    "right_leg", 'left_leg'
                 ],
-                "default_max_classes": 21
+                "default_max_classes": 21  # 증가
             }
         }
 

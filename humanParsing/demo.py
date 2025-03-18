@@ -8,7 +8,7 @@ from typing import Union, List, Tuple
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-from parsing.models import ParsingModel  # 사용자의 모델 클래스 가정
+from HumanParsing.models import ParsingModel  # 사용자의 모델 클래스 가정
 
 
 def visualize_classes_separately(image, prediction, mode="tops", alpha=0.7, max_classes=None):
@@ -203,16 +203,16 @@ class Demo:
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Demo for Human Parsing Model')
-    parser.add_argument('--checkpoint', type=str, default=r".\humanParsing\output\bottoms_20250310_215044\model_best.pth",
+    parser.add_argument('--checkpoint', type=str, default=r"",
                         help='Path to model checkpoint')
     parser.add_argument('--image', type=str,
-                        default=r".\parsingData\viton_dataset\cloth\bottom_014537.jpg",
+                        default=r"",
                         help='Path to input image')
     parser.add_argument('--output-dir', type=str, default='demo_results',
                         help='Directory to save results')
-    parser.add_argument('--num-classes', type=int, default=7,
+    parser.add_argument('--num-classes', type=int, default=5,
                         help='Number of classes')
-    parser.add_argument('--alpha', type=float, default=0.7,
+    parser.add_argument('--alpha', type=float, default=0.4,
                         help='Transparency for overlay visualization (0-1)')
     parser.add_argument('--input-size', type=str, default='320,640',
                         help='Input size in format "height,width", default: 320,640')

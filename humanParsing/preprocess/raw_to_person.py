@@ -60,7 +60,7 @@ def process_model_file(task: Dict) -> Dict:
         target_dir = task["target_dir"]
         split = task["split"]
 
-        # 모델 데이터용 person 디렉토리 생성 (예: rawdata/model/train/model_person_000001)
+        # 모델 데이터용 person 디렉토리 생성 (예: preprocessed/model/train/model_person_000001)
         person_dir = os.path.join(target_dir, f"model_person_{person_id}")
         os.makedirs(person_dir, exist_ok=True)
 

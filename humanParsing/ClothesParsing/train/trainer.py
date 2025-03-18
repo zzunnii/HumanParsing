@@ -27,7 +27,7 @@ class Trainer:
             device: torch.device = torch.device('cuda'),
             output_dir: str = 'model_output',
             visualizer: Optional[Visualizer] = None,
-            num_classes: int = 20,
+            num_classes: int = 19,
             mixed_precision: bool = True,
             gradient_clip_val: Optional[float] = None,
             gradient_accumulation_steps: int = 1,
@@ -38,7 +38,7 @@ class Trainer:
             use_wandb: bool = True,
             wandb_project: str = "human_parsing",
             batch_size: int = 32,
-            mode: str = "item"
+            mode: str = "model"
     ):
         # 기본 모델 및 최적화 설정
         self.model = model.to(device)
