@@ -37,13 +37,13 @@ def parse_args():
 
     # Data configuration - 전처리된 데이터 경로 사용
     parser.add_argument('--train-dir', type=str,
-                        default="C:/Users/tjdwn/OneDrive/Desktop/parsingData/preprocessed/model/train",
+                        default="",
                         help='Preprocessed training data directory for model')
     parser.add_argument('--val-dir', type=str,
-                        default="C:/Users/tjdwn/OneDrive/Desktop/parsingData/preprocessed/model/val",
+                        default="",
                         help='Preprocessed validation data directory for model')
     parser.add_argument('--mask-dir', type=str,
-                        default="C:/Users/tjdwn/OneDrive/Desktop/parsingData/preprocessed/model",  # 예시
+                        default="",  # 예시
                         help='Directory containing pre-generated masks (if needed)')
 
     # Model configuration

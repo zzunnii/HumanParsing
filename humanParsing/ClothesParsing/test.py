@@ -15,11 +15,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Test Human Parsing Model')
 
     # Basic configuration
-    parser.add_argument('--test-dir', type=str, default="C:/Users/tjdwn/OneDrive/Desktop/parsingData/preprocessed/item/test",
+    parser.add_argument('--test-dir', type=str, default="",
                         help='Preprocessed test data directory')
     parser.add_argument('--output-dir', type=str, default='test_results',
                         help='Directory to save test results')
-    parser.add_argument('--checkpoint', type=str, default=r"C:\Users\tjdwn\GitHub\virtualTryOn\humanParsing\output\tops_20250309_215712\checkpoint_epoch17.pth",
+    parser.add_argument('--checkpoint', type=str, default=r"",
                         help='Path to model checkpoint')
 
     # Model configuration
