@@ -8,18 +8,27 @@ ResNet101_Weights.IMAGENET1K_V1을 파인튜닝하여 인체 및 의류 영역�
 ## Model(20), Tops(5), Bottoms(7)
 # Performance
 ### model
-#### Test mIoU - 0.83
+#### Test mIoU - 0.83 => 개선 진행중 
 <table>
- <tr>
-   <td><img src="/assets/model_test2.jpg" alt="모델 원본 이미지" width="100%"></td>
-   <td><img src="/assets/model_test2_processed.png" alt="모델 배경제거" width="100%"></td>
- </tr>
- <tr>
-   <td><img src="/assets/model_test2_mask.png" alt="모델 테스트 마스크" width="100%"></td>
-   <td><img src="/assets/model_test2_pure_mask.png" alt="모델 테스트 순수 마스크" width="100%"></td>
- </tr>
- <tr>
-   <td colspan="2"><img src="/assets/model_test2_result.png" alt="모델 테스트 결과" width="50%"></td>
- </tr>
+  <tr>
+    <th>원본 이미지</th>
+    <th>배경 제거</th>
+    <th>세그먼테이션 마스크</th>
+  </tr>
+  <tr>
+    <td><img src="/assets/model_test2.jpg" alt="모델 원본 이미지" width="300px" height="300px"></td>
+    <td><img src="/assets/model_test2_processed.png" alt="모델 배경제거" width="300px" height="300px"></td>
+    <td><img src="/assets/model_test2_mask.png" alt="모델 테스트 마스크" width="300px" height="300px"></td>
+  </tr>
+  <tr>
+    <th>순수 마스크</th>
+    <th>최종 결과</th>
+    <th></th>
+  </tr>
+  <tr>
+    <td><img src="/assets/model_test2_pure_mask.png" alt="모델 테스트 순수 마스크" width="300px" height="300px"></td>
+    <td><img src="/assets/model_test2_result.png" alt="모델 테스트 결과" width="300px" height="300px"></td>
+    <td></td>
+  </tr>
 </table>
 # modified 2025.03.24
