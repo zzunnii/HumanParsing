@@ -8,9 +8,9 @@ ResNet101_Weights.IMAGENET1K_V1을 파인튜닝하여 인체 및 의류 영역�
 # Performance
 ### model
 #### Test mIoU - 0.83
-![모델 테스트 마스크](/HumanParsing/assets/model_test2_mask.png)
-![모델 테스트 처리됨](/HumanParsing/assets/model_test2_processed.png)
-![모델 테스트 순수 마스크](/HumanParsing/assets/model_test2_pure_mask.png)
-![모델 테스트 결과](/HumanParsing/assets/model_test2_result.png)
+![모델 테스트 마스크](/assets/model_test2_mask.png)
+![모델 테스트 처리됨](/assets/model_test2_processed.png)
+![모델 테스트 순수 마스크](/assets/model_test2_pure_mask.png)
+![모델 테스트 결과](/assets/model_test2_result.png)
 
 # modified 2025.03.12
