@@ -1,18 +1,35 @@
+# trainer.py
+
 import os
 import sys
-# 프로젝트 루트 경로 추가
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import time
 import torch
 import torch.nn as nn
 from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
-# 절대 경로 임포트로 변경
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from humanParsing.HumanParsing.data.dataloader import DataPrefetcher
-from humanParsing.HumanParsing.utils import AverageMeter, SegmentationMetric, TensorboardLogger, Logger, Visualizer
+from humanParsing.HumanParsing.utils import (
+    AverageMeter,
+    SegmentationMetric,
+    TensorboardLogger,
+    Logger,
+    Visualizer
+)
+
+# 예시: 클래스 인덱스 → 클래스명
+CLASS_NAMES = [
+    "background", "hair", "face", "neck", "hat",
+    "outer_rsleeve", "outer_lsleeve", "outer_torso",
+    "inner_rsleeve", "inner_lsleeve", "inner_torso",
+    "pants_hip", "pants_rsleeve", "pants_lsleeve",
+    "skirt", "right_arm", "left_arm", "right_shoe",
+    "left_shoe", "right_leg", "left_leg"
+]
+NUM_CLASSES = len(CLASS_NAMES)
 
 class Trainer:
     def __init__(
@@ -24,7 +41,7 @@ class Trainer:
             device: torch.device = torch.device('cuda'),
             output_dir: str = 'model_output',
             visualizer: Optional[Visualizer] = None,
-            num_classes: int = 20,
+            num_classes: int = 21,
             mixed_precision: bool = True,
             gradient_clip_val: Optional[float] = None,
             gradient_accumulation_steps: int = 1,
@@ -36,7 +53,6 @@ class Trainer:
             wandb_project: str = "human_parsing",
             batch_size: int = 32
     ):
-        # 기본 모델 및 최적화 설정
         self.model = model.to(device)
         self.criterion = criterion
         self.optimizer = optimizer
@@ -45,31 +61,30 @@ class Trainer:
         self.output_dir = output_dir
         self.visualizer = visualizer
 
-        # 학습 설정
+        # basic training configs
         self.mixed_precision = mixed_precision
         self.gradient_clip_val = gradient_clip_val
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.print_freq = print_freq
         self.save_freq = save_freq
-
-        # Early stopping 설정
         self.early_stopping_patience = early_stopping_patience
         self.early_stopping_delta = early_stopping_delta
         self.early_stopping_counter = 0
         self.best_score = None
 
-        # 메트릭 및 로깅 설정
+        # Metric & logging
         self.metric = SegmentationMetric(num_classes=num_classes, device=device)
         os.makedirs(output_dir, exist_ok=True)
         self.tb_logger = TensorboardLogger(os.path.join(output_dir, 'tensorboard'))
         self.logger = Logger(name='train', save_dir=output_dir)
 
-        # Mixed precision 설정
         self.scaler = GradScaler() if mixed_precision else None
         self.best_metric = 0.0
+        self.global_step = 0
 
-        self.global_step = 0  # 전역 step 카운터 추가
-        # Wandb 설정
+        # ---------------------------
+        # WandB init
+        # ---------------------------
         self.use_wandb = use_wandb
         if self.use_wandb:
             try:
@@ -109,7 +124,6 @@ class Trainer:
 
         while batch is not None:
             data_time.update(time.time() - end)
-
             images = batch['image']
             targets = batch['mask']
 
@@ -146,13 +160,14 @@ class Trainer:
                     self.optimizer.step()
                     self.optimizer.zero_grad()
 
+            # IoU 업데이트
             predictions = torch.argmax(outputs, dim=1)
             self.metric.update(predictions, targets)
-
             losses.update(loss.item() * self.gradient_accumulation_steps)
             batch_time.update(time.time() - end)
-            batch_iou = self.metric.get_scores()
 
+            # 배치단위 로그
+            batch_iou = self.metric.get_scores()
             if idx % self.print_freq == 0:
                 current_lr = self.optimizer.param_groups[0]['lr']
                 memory_used = torch.cuda.max_memory_allocated() / (1024 * 1024)
@@ -166,13 +181,16 @@ class Trainer:
                     f'LR {current_lr:.2e}'
                 )
 
+                # TensorBoard
                 self.tb_logger.log_scalar('train/loss_step', losses.val, self.global_step)
                 self.tb_logger.log_scalar('train/lr', current_lr, self.global_step)
                 self.tb_logger.log_scalar('train/memory', memory_used, self.global_step)
+                self.tb_logger.log_scalar('train/batch_miou', batch_iou["mean_iu"], self.global_step)
 
+                # WandB
                 if self.use_wandb:
+                    import wandb
                     try:
-                        import wandb
                         wandb.log({
                             "train/loss_step": losses.val,
                             "train/lr": current_lr,
@@ -193,6 +211,22 @@ class Trainer:
             self.scheduler.step()
 
         scores = self.metric.get_scores()
+
+        # 클래스별 IoU
+        class_iou = scores.get("iou_per_class", None)
+        if class_iou is not None:
+            for class_idx, iou_val in enumerate(class_iou):
+                class_name = CLASS_NAMES[class_idx] if class_idx < len(CLASS_NAMES) else f"Class{class_idx}"
+                self.logger.info(f"Train Epoch [{epoch}] - Class {class_idx} ({class_name}): IoU={iou_val:.4f}")
+
+                self.tb_logger.log_scalar(f'train/class_iou/{class_name}', iou_val, epoch)
+                if self.use_wandb:
+                    import wandb
+                    try:
+                        wandb.log({f"train/class_iou/{class_name}": iou_val}, step=epoch)
+                    except Exception as e:
+                        self.logger.error(f"Failed to log per-class IoU to WandB: {str(e)}")
+
         return scores
 
     @torch.no_grad()
@@ -200,7 +234,6 @@ class Trainer:
         self.model.eval()
         batch_time = AverageMeter()
         losses = AverageMeter()
-
         self.metric.reset()
         end = time.time()
 
@@ -210,25 +243,24 @@ class Trainer:
 
             outputs = self.model(images)
             loss = self.criterion(outputs, targets)
-
             predictions = torch.argmax(outputs, dim=1)
             self.metric.update(predictions, targets)
 
             losses.update(loss.item())
             batch_time.update(time.time() - end)
 
+            # 시각화
             if self.visualizer is not None and i == 0:
                 vis_img = self.visualizer.visualize_prediction(
                     images[0].cpu(),
                     predictions[0].cpu(),
                     targets[0].cpu()
                 )
-
                 if vis_img is not None and vis_img.ndim == 3 and vis_img.shape[-1] == 3:
                     self.tb_logger.log_image('val/predictions', vis_img, self.global_step)
                     if self.use_wandb:
+                        import wandb
                         try:
-                            import wandb
                             wandb.log({"val/predictions": wandb.Image(vis_img)}, step=self.global_step)
                         except Exception as e:
                             self.logger.error(f"Failed to log image to WandB: {str(e)}")
@@ -236,7 +268,6 @@ class Trainer:
             end = time.time()
 
         scores = self.metric.get_scores()
-
         self.tb_logger.log_scalar('val/loss', losses.avg, self.global_step)
         self.tb_logger.log_scalar('val/miou', scores['mean_iu'], self.global_step)
         self.tb_logger.log_scalar('val/pixel_acc', scores['pixel_acc'], self.global_step)
@@ -248,6 +279,21 @@ class Trainer:
             f'Pixel Acc {scores["pixel_acc"]:.4f}'
         )
 
+        # 클래스별 IoU
+        class_iou = scores.get("iou_per_class", None)
+        if class_iou is not None:
+            for class_idx, iou_val in enumerate(class_iou):
+                class_name = CLASS_NAMES[class_idx] if class_idx < len(CLASS_NAMES) else f"Class{class_idx}"
+                self.logger.info(f"Val Epoch [{epoch}] - Class {class_idx} ({class_name}): IoU={iou_val:.4f}")
+
+                self.tb_logger.log_scalar(f'val/class_iou/{class_name}', iou_val, epoch)
+                if self.use_wandb:
+                    import wandb
+                    try:
+                        wandb.log({f"val/class_iou/{class_name}": iou_val}, step=epoch)
+                    except Exception as e:
+                        self.logger.error(f"Failed to log per-class IoU to WandB: {str(e)}")
+
         return scores
 
     def save_checkpoint(self, epoch: int, metric: float, is_best: bool = False):
@@ -258,12 +304,8 @@ class Trainer:
             'scheduler': self.scheduler.state_dict() if self.scheduler else None,
             'metric': metric
         }
-
-        # 매 에포크마다 저장
         save_path = os.path.join(self.output_dir, f'checkpoint_epoch{epoch}.pth')
         torch.save(state, save_path)
-
-        # 최고 성능 모델 저장
         if is_best:
             best_path = os.path.join(self.output_dir, 'model_best.pth')
             torch.save(state, best_path)
@@ -284,10 +326,9 @@ class Trainer:
             train_scores = self.train_epoch(train_loader, epoch)
             val_scores = self.validate(val_loader, epoch)
 
-            # Wandb 로깅
             if self.use_wandb:
+                import wandb
                 try:
-                    import wandb
                     wandb.log({
                         "train/miou": train_scores["mean_iu"],
                         "train/pixel_acc": train_scores["pixel_acc"],
@@ -295,11 +336,11 @@ class Trainer:
                         "val/miou": val_scores["mean_iu"],
                         "val/pixel_acc": val_scores["pixel_acc"],
                         "learning_rate": self.optimizer.param_groups[0]['lr']
-                    }, step=self.global_step)  # 전역 step 사용
+                    }, step=self.global_step)
                 except Exception as e:
                     self.logger.error(f"Failed to log epoch metrics to WandB: {str(e)}")
 
-            # Early stopping 체크
+            # Early stopping
             current_score = val_scores['mean_iu']
             if self.best_score is None:
                 self.best_score = current_score
@@ -314,15 +355,15 @@ class Trainer:
                     self.logger.info('Early stopping triggered')
                     break
 
-            # 체크포인트 저장
+            # Checkpoint
             is_best = val_scores['mean_iu'] > self.best_metric
             if is_best:
                 self.best_metric = val_scores['mean_iu']
             self.save_checkpoint(epoch, val_scores['mean_iu'], is_best)
 
         if self.use_wandb:
+            import wandb
             try:
-                import wandb
                 wandb.finish()
             except Exception as e:
                 self.logger.error(f"Failed to finish WandB run: {str(e)}")

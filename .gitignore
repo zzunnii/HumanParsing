@@ -167,3 +167,7 @@ wandb
 *txt
 *json
 *pt
+!model_test2_mask.png
+!model_test2_processed.png
+!model_test2_pure_mask.png
+!model_test2_result.png

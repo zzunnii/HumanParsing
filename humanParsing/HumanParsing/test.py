@@ -1,29 +1,35 @@
-# test.py 수정 버전
+import numpy as np
 import os
+import sys
+# HumanParsing 모듈을 Python 경로에 추가
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
 import torch
 import argparse
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 
-from .models import ParsingModel
-from .data import build_dataset, build_transforms, build_dataloader
-from .utils import Logger, Visualizer, SegmentationMetric
+from models import ParsingModel
+from data import build_dataset, build_transforms, build_dataloader
+from utils import Logger, Visualizer, SegmentationMetric
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Test Human Parsing Model')
 
     # Basic configuration
-    parser.add_argument('--test-dir', type=str, default="",
+    parser.add_argument('--test-dir', type=str, default="./parsingData/preprocessed/model/test",
                         help='Preprocessed test data directory')
     parser.add_argument('--output-dir', type=str, default='test_results',
                         help='Directory to save test results')
-    parser.add_argument('--checkpoint', type=str, default=r"",
+    parser.add_argument('--checkpoint', type=str, default=r".\model_outputs\model_best.pth",
                         help='Path to model checkpoint')
 
     # Model configuration
-    parser.add_argument('--num-classes', type=int, default=5,
+    parser.add_argument('--num-classes', type=int, default=21,
                         help='Number of classes')
     parser.add_argument('--fpn-channels', type=int, default=256,
                         help='Number of FPN channels')
@@ -31,7 +37,7 @@ def parse_args():
                         help='Number of decoder channels')
 
     # Test configuration
-    parser.add_argument('--batch-size', type=int, default=1,
+    parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size for testing')
     parser.add_argument('--num-workers', type=int, default=4,
                         help='Number of data loading workers')

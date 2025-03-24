@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 from typing import Dict, Optional, Union
 from .dataset import PreprocessedDataset
-from configs.train_config import TrainConfig
+from humanParsing.HumanParsing.configs import TrainConfig
 
 def worker_init_fn(worker_id: int) -> None:
     # 나머지 코드는 그대로 유지
@@ -17,6 +17,41 @@ def worker_init_fn(worker_id: int) -> None:
     np.random.seed(worker_seed)
     import random
     random.seed(worker_seed)
+
+
+def custom_collate_fn(batch):
+    """
+    Custom collate function to handle variable sized images
+    """
+    # Find maximum dimensions in the batch
+    max_h = max([item['image'].shape[1] for item in batch])
+    max_w = max([item['image'].shape[2] for item in batch])
+
+    # Create new batch with resized tensors
+    new_batch = []
+    for item in batch:
+        image = item['image']
+        mask = item['mask']
+
+        # Pad images to the max size
+        if image.shape[1] != max_h or image.shape[2] != max_w:
+            # Pad image
+            padded_image = torch.zeros(3, max_h, max_w, device=image.device, dtype=image.dtype)
+            padded_image[:, :image.shape[1], :image.shape[2]] = image
+
+            # Pad mask
+            padded_mask = torch.zeros(max_h, max_w, device=mask.device, dtype=mask.dtype)
+            padded_mask[:mask.shape[0], :mask.shape[1]] = mask
+
+            new_batch.append({'image': padded_image, 'mask': padded_mask})
+        else:
+            new_batch.append(item)
+
+    # Stack the tensors
+    return {
+        'image': torch.stack([item['image'] for item in new_batch]),
+        'mask': torch.stack([item['mask'] for item in new_batch])
+    }
 
 def build_dataloader(
         dataset: PreprocessedDataset,

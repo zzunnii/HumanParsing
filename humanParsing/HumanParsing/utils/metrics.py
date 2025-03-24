@@ -152,7 +152,7 @@ class SegmentationMetric:
             'mean_acc': acc_cls.item(),
             'mean_iu': mean_iu,
             'mean_f1': mean_f1,
-            'class_iu': class_iu,
+            'class_iu': class_iu,  # ← 각 클래스별 IoU 딕셔너리
             'class_f1': {i: f1[i].item() for i in range(self.num_classes)}
         }
 

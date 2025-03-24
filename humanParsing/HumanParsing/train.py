@@ -1,13 +1,13 @@
-
 import numpy as np
 import os
 import sys
+
 # HumanParsing 모듈을 Python 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 os.environ["TORCH_USE_CUDA_DSA"] = "1"
-
+os.environ["PYTORCH_WINDOWS_SHARED_MEMORY"] = "0"
 import torch
 import argparse
 from torch.utils.data import DataLoader, Subset
@@ -37,13 +37,13 @@ def parse_args():
 
     # Data configuration - 전처리된 데이터 경로 사용
     parser.add_argument('--train-dir', type=str,
-                        default="",
+                        default="./parsingData/preprocessed/model/train",
                         help='Preprocessed training data directory for model')
     parser.add_argument('--val-dir', type=str,
-                        default="",
+                        default="/parsingData/preprocessed/model/val",
                         help='Preprocessed validation data directory for model')
     parser.add_argument('--mask-dir', type=str,
-                        default="",  # 예시
+                        default="./parsingData/preprocessed/model",  # 예시
                         help='Directory containing pre-generated masks (if needed)')
 
     # Model configuration
@@ -61,7 +61,7 @@ def parse_args():
                         help='Number of epochs')
     parser.add_argument('--batch-size', type=int, default=8,
                         help='Batch size')
-    parser.add_argument('--num-workers', type=int, default=4,
+    parser.add_argument('--num-workers', type=int, default=2,
                         help='Number of data loading workers')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate')
@@ -73,6 +73,10 @@ def parse_args():
                         help='Number of gradient accumulation steps')
     parser.add_argument('--gradient-clip-val', type=float, default=None,
                         help='Gradient clipping value')
+
+    # 새 인자 추가: 체크포인트 이어서 학습할 때 향상된 증강 적용
+    parser.add_argument('--enhanced-aug-on-resume', action='store_true', default=True,
+                        help='Enable enhanced augmentation when resuming from checkpoint')
 
     # Scheduler configuration
     parser.add_argument('--warmup-epochs', type=int, default=5,
@@ -89,11 +93,11 @@ def parse_args():
                         help='Focal loss weight')
 
     # Resume training
-    parser.add_argument('--resume-from', type=str, default=None,
+    parser.add_argument('--resume-from', type=str,
+                        default=r".\HumanParsing\model_outputs\checkpoint_epoch13.pth",
                         help='Path to checkpoint to resume from')
-    args = parser.parse_args()
 
-    #추가 인자
+    # 추가 인자
     parser.add_argument('--early-stopping-patience', type=int, default=10,
                         help='Number of epochs to wait before early stopping')
     parser.add_argument('--early-stopping-delta', type=float, default=0.001,
@@ -103,16 +107,19 @@ def parse_args():
     parser.add_argument('--wandb-project', type=str, default='human_parsing',
                         help='Weights & Biases project name')
 
+    args = parser.parse_args()
+
     # Quick test 모드일 때 설정 자동 조정
     if args.quick_test:
         args.batch_size = 4
-        args.epochs = 3
+        args.epochs = 20
         args.gradient_accumulation_steps = 1
         args.num_workers = 4
 
     return args
 
-#빠른 테스트를 위한 설정
+
+# 빠른 테스트를 위한 설정
 def get_subset_indices(dataset_size, subset_size=1000):
     """Get random subset of indices"""
     indices = np.random.permutation(dataset_size)[:subset_size]
@@ -141,8 +148,17 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}')
 
-    # Build transforms
-    train_transform = build_transforms(is_train=True)
+    # 체크포인트에서 이어서 학습하는 경우에만 향상된 증강 활성화
+    use_enhanced_aug = False
+    if args.resume_from and args.enhanced_aug_on_resume:
+        use_enhanced_aug = True
+        logger.info("Resume 모드: 향상된 데이터 증강 활성화")
+
+    # Build transforms - resume 활성화된 경우 향상된 증강 사용
+    train_transform = build_transforms(
+        is_train=True,
+        enable_resume_mode=use_enhanced_aug  # resume 모드에서만 향상된 증강 활성화
+    )
     val_transform = build_transforms(is_train=False)
 
     # Build datasets
@@ -183,7 +199,7 @@ def main():
 
     val_loader = build_dataloader(
         dataset=val_dataset,
-        batch_size=args.batch_size,
+        batch_size=4,
         num_workers=args.num_workers,
         shuffle=False,
         pin_memory=True,
@@ -204,7 +220,8 @@ def main():
         num_classes=args.num_classes,
         ce_weight=args.ce_weight,
         dice_weight=args.dice_weight,
-        focal_weight=args.focal_weight
+        focal_weight=args.focal_weight,
+        boundary_weight=0.2,  # Boundary Loss 추가
     )
 
     optimizer = build_optimizer(
@@ -215,13 +232,20 @@ def main():
         backbone_lr_factor=0.1
     )
 
+    # 체크포인트에서 이어서 학습할 때는 학습률 조정
+    if args.resume_from:
+        initial_lr = args.lr * 0.5  # 더 낮은 학습률로 시작
+        logger.info(f"Resume 모드: 학습률 조정 {args.lr} -> {initial_lr}")
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = initial_lr * param_group['lr'] / args.lr
+
     scheduler = build_scheduler(
         optimizer=optimizer,
         name='onecycle',
         epochs=args.epochs,
         steps_per_epoch=len(train_loader),  # 추가
         warmup_epochs=0,  # onecycle은 자체 warmup이 있으므로 0으로 설정
-        max_lr=3e-4,
+        max_lr=3e-4 if not args.resume_from else 1.5e-4,  # resume 모드에서는 낮은 최대 학습률
         pct_start=0.3,
         div_factor=25.0,
         final_div_factor=1000.0
@@ -229,6 +253,7 @@ def main():
 
     visualizer = Visualizer(num_classes=args.num_classes)
 
+    # Trainer 클래스 초기화 - is_resume_mode 매개변수 제거하고 batch_size 추가
     trainer = Trainer(
         model=model,
         criterion=criterion,
@@ -240,7 +265,12 @@ def main():
         num_classes=args.num_classes,
         mixed_precision=args.mixed_precision,
         gradient_clip_val=args.gradient_clip_val,
-        gradient_accumulation_steps=args.gradient_accumulation_steps
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        batch_size=args.batch_size,  # batch_size 추가 (trainer.py에 이 인자가 있음)
+        early_stopping_patience=args.early_stopping_patience,
+        early_stopping_delta=args.early_stopping_delta,
+        use_wandb=args.use_wandb,
+        wandb_project=args.wandb_project
     )
 
     trainer.train(
@@ -249,6 +279,7 @@ def main():
         num_epochs=args.epochs,
         resume_from=args.resume_from
     )
+
 
 if __name__ == '__main__':
     main()

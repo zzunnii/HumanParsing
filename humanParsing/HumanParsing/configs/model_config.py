@@ -1,14 +1,13 @@
 class ModelConfig:
     # 백본 설정
-    BACKBONE = "resnet101"
+    BACKBONE = "resnet-50"
     BACKBONE_PRETRAINED = True
 
     # 입력 이미지 설정
-    INPUT_SIZE = (320, 640)
+    INPUT_SIZE = (720, 1280)
 
     # 모델 파싱 클래스
-    MODEL_CLASSES = 20  # 신체/의류 클래스
-    ITEM_CLASSES = 14  # 아이템 클래스
+    MODEL_CLASSES = 21  # 신체/의류 클래스
 
     # UPerNet 설정
     UPERNET_CHANNELS = 512
