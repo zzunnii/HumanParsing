@@ -23,15 +23,16 @@ readme 작성중
   </tr>
   <tr>
     <th>순수 마스크</th>
-    <th>최종 결과</th>
-    <th></th>
+    <th>오버레이 결과</th>
+    <th>최종 오버레이 결과</th>
   </tr>
   <tr>
     <td><img src="/assets/model_test2_pure_mask.png" alt="모델 테스트 순수 마스크" width="300px" height="300px"></td>
     <td><img src="/assets/model_test2_result.png" alt="모델 테스트 결과" width="300px" height="300px"></td>
-    <td></td>
+    <td><img src="/assets/model_test2_original_overlay.png" alt="모델 최종 오버레이 결과" width="300px" height="300px"></td>
   </tr>
 </table>
+
 
 ### tops
 #### Test mIoU - 0.8633
@@ -48,18 +49,20 @@ readme 작성중
   </tr>
   <tr>
     <th>순수 마스크</th>
-    <th>최종 결과</th>
-    <th></th>
+    <th>오버레이 결과</th>
+    <th>최종 오버레이 결과</th>
   </tr>
   <tr>
     <td><img src="/assets/cloth_test2_pure_mask.png" alt="모델 테스트 순수 마스크" width="300px" height="300px"></td>
     <td><img src="/assets/cloth_test2_result.png" alt="모델 테스트 결과" width="300px" height="300px"></td>
-    <td></td>
+    <td><img src="/assets/cloth_test2_original_overlay.png" alt="모델 최종 오버레이 결과" width="300px" height="300px"></td>
   </tr>
 </table>
 
-### botoms
+
+### bottoms
 #### Test mIoU - 0.76
+
 <table>
   <tr>
     <th>원본 이미지</th>
@@ -73,13 +76,14 @@ readme 작성중
   </tr>
   <tr>
     <th>순수 마스크</th>
-    <th>최종 결과</th>
-    <th></th>
+    <th>오버레이 결과</th>
+    <th>최종 오버레이 결과</th>
   </tr>
   <tr>
     <td><img src="/assets/bottoms1_pure_mask.png" alt="모델 테스트 순수 마스크" width="300px" height="300px"></td>
     <td><img src="/assets/bottoms1_result.png" alt="모델 테스트 결과" width="300px" height="300px"></td>
-    <td></td>
+    <td><img src="/assets/bottoms1_original_overlay.png" alt="모델 최종 오버레이 결과" width="300px" height="300px"></td>
   </tr>
 </table>
+
 # modified 2025.03.26

@@ -172,15 +172,18 @@ wandb
 !model_test2_pure_mask.png
 !model_test2_result.png
 !model_test2.jpg
+!model_test2_original_overlay.png
 
 !cloth_test2_mask.png
 !cloth_test2_processed.png
 !cloth_test2_pure_mask.png
 !cloth_test2_result.png
 !cloth_test2.jpg
+!cloth_test2_original_overlay.png
 
 !bottoms1.jpg
 !bottoms1_mask.png
 !bottoms1_processed.png
 !bottoms1_pure_mask.png
 !bottoms1_result.png
+!bottoms1_original_overlay.png
