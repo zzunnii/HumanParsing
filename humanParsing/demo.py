@@ -3,7 +3,7 @@ import cv2
 import torch
 import argparse
 import numpy as np
-from typing import Union,  Tuple
+from typing import Union, Tuple
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -88,162 +88,93 @@ def visualize_classes_separately(image, prediction, mode="tops", alpha=0.7, max_
 def save_mask_only(prediction, save_path, mode="tops", max_classes=None):
     """마스크만 저장하는 함수"""
     class_configs = {
-        "tops": {
-            "names": ["background", "rsleeve", "lsleeve", "torsho", "top_hidden"],
-            "default_max_classes": 5
-        },
-        "bottoms": {
-            "names": ["background", "hip", "pants_rsleeve", "pants_lsleeve", "pants_hidden", "skirt", "skirt_hidden"],
-            "default_max_classes": 7
-        },
-        "model": {
-            "names": [
-                "background", "hair", "face", "neck", "hat",
-                "outer_rsleeve", "outer_lsleeve", "outer_torso",
-                "inner_rsleeve", "inner_lsleeve", "inner_torso",
-                "pants_hip", "pants_rsleeve", "pants_lsleeve",
-                "skirt", "right_arm", "left_arm",
-                "right_shoe", "left_shoe", "right_leg", "left_leg"
-            ],
-            "default_max_classes": 21
-        }
+        "tops": {"names": ["background", "rsleeve", "lsleeve", "torsho", "top_hidden"], "default_max_classes": 5},
+        "bottoms": {"names": ["background", "hip", "pants_rsleeve", "pants_lsleeve", "pants_hidden", "skirt", "skirt_hidden"], "default_max_classes": 7},
+        "model": {"names": ["background", "hair", "face", "neck", "hat", "outer_rsleeve", "outer_lsleeve", "outer_torso", "inner_rsleeve", "inner_lsleeve", "inner_torso", "pants_hip", "pants_rsleeve", "pants_lsleeve", "skirt", "right_arm", "left_arm", "right_shoe", "left_shoe", "right_leg", "left_leg"], "default_max_classes": 21}
     }
 
     default_max = class_configs[mode]["default_max_classes"]
     max_classes = max_classes if max_classes is not None else default_max
 
-    # 마스크 시각화를 위한 이미지 생성 (각 클래스별로 고유 색상)
     mask_image = np.zeros((prediction.shape[0], prediction.shape[1], 3), dtype=np.uint8)
-
-    for idx in range(1, max_classes):  # 0은 배경이므로 1부터 시작
+    for idx in range(1, max_classes):
         if idx < prediction.max() + 1:
             mask = (prediction == idx).astype(np.uint8)
-            # 각 클래스별로 다른 색상 할당 (간단한 예시)
             color = ((idx * 37) % 256, (idx * 73) % 256, (idx * 113) % 256)
             mask_image[mask > 0] = color
 
     cv2.imwrite(save_path, mask_image)
     return mask_image
 
-
 def apply_edge_processing(image, mask, kernel_size=5, sigma=1.0):
     """개선된 경계 처리 함수"""
-    # 마스크가 3채널인 경우 1채널로 변환
     if len(mask.shape) == 3:
         mask_gray = mask[:, :, 0]
     else:
         mask_gray = mask
 
-    # 경계 감지 (더 넓은 범위의 경계 포착)
     kernel = np.ones((3, 3), np.uint8)
     dilated = cv2.dilate(mask_gray, kernel, iterations=1)
     eroded = cv2.erode(mask_gray, kernel, iterations=1)
-    edges = dilated - eroded  # 더 두꺼운 경계선 생성
+    edges = dilated - eroded
 
-    # 블러 적용 (더 큰 커널과 적절한 시그마 값)
     blurred = cv2.GaussianBlur(image, (kernel_size, kernel_size), sigma)
-
-    # 경계선에만 블러 적용 (가중치 적용)
     edges_3d = np.repeat(edges[:, :, np.newaxis], 3, axis=2)
-
-    # 점진적 블렌딩을 위한 가중치 맵 생성
     weight_map = edges_3d.astype(np.float32) / 255.0
 
-    # 원본과 블러 이미지 블렌딩
     result = image.copy()
     for i in range(3):
         result[:, :, i] = image[:, :, i] * (1 - weight_map[:, :, i]) + blurred[:, :, i] * weight_map[:, :, i]
-
     return result
-
 
 def remove_misclassification(pred_mask, min_area=50):
     """작은 오분류 영역 제거"""
     cleaned_mask = np.zeros_like(pred_mask)
-
-    # 각 클래스별로 처리
-    for class_id in range(1, pred_mask.max() + 1):  # 0은 배경
-        # 현재 클래스만 추출
+    for class_id in range(1, pred_mask.max() + 1):
         class_mask = (pred_mask == class_id).astype(np.uint8)
-
-        # 작은 노이즈 제거 (opening 연산)
         kernel = np.ones((3, 3), np.uint8)
         opened = cv2.morphologyEx(class_mask, cv2.MORPH_OPEN, kernel)
-
-        # 연결 컴포넌트 레이블링으로 각 영역 분석
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(opened)
-
-        # 각 연결 영역에 대해 처리
-        for i in range(1, num_labels):  # 0은 배경
+        for i in range(1, num_labels):
             area = stats[i, cv2.CC_STAT_AREA]
-            if area < min_area:  # 너무 작은 영역은 제거
-                labels[labels == i] = 0
-
-        # 현재 클래스에 대한 마스크 업데이트 (작은 영역 제거됨)
-        cleaned_component = (labels > 0).astype(np.uint8)
-        cleaned_mask[cleaned_component > 0] = class_id
-
+            if area >= min_area:
+                cleaned_mask[labels == i] = class_id
     return cleaned_mask
 
 def apply_exact_mask_from_parsing(original_image, person_mask, pred_mask):
-    """원래 이미지에서 파싱 마스크를 이용해 정확하게 경계 적용"""
-
-    # 배경은 투명하게 처리
+    """원래 이미지에서 파 управления싱 마스크를 이용해 정확하게 경계 적용"""
     result = np.zeros((original_image.shape[0], original_image.shape[1], 4), dtype=np.uint8)
-
-    # 사람 영역 복사 (RGB 채널)
     result[:, :, :3] = original_image
-
-    # 인물 마스크와 파싱 마스크를 결합한 최종 알파 채널
-    # 배경(0)이 아닌 부분만 마스크로 설정
     final_mask = np.zeros_like(person_mask)
-    final_mask[pred_mask > 0] = 255  # 배경이 아닌 모든 클래스에 대해 마스크 설정
-
-    # 알파 채널에 마스크 적용
+    final_mask[pred_mask > 0] = 255
     result[:, :, 3] = final_mask
-
     return result
-
 
 def class_boundaries(pred_mask):
     """클래스 간 경계 개선"""
-    # 경계 감지 단계
-    edges = np.zeros_like(pred_mask, dtype=np.uint8)  # uint8 타입으로 명시
+    edges = np.zeros_like(pred_mask, dtype=np.uint8)
     for class_id in range(1, pred_mask.max() + 1):
         class_mask = (pred_mask == class_id).astype(np.uint8)
-        # 경계 감지
         contours, _ = cv2.findContours(class_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        # 경계선 그리기 (두께 조절)
         cv2.drawContours(edges, contours, -1, 1, thickness=2)
 
-    # 경계 부분 부드럽게 처리
     kernel = np.ones((3, 3), np.uint8)
     dilated_edges = cv2.dilate(edges, kernel, iterations=1)
-
-    # 경계 부분에서 블렌딩 영역 생성
     blending_region = dilated_edges > 0
 
-    # 클래스 ID를 보존하면서 마스크 반환
     improved_mask = pred_mask.copy()
-
-    # 경계 부분은 주변 픽셀의 가장 빈번한 값으로 대체 (노이즈 감소)
     y_indices, x_indices = np.where(blending_region)
     for y, x in zip(y_indices, x_indices):
-        # 3x3 주변 영역에서 가장 빈번한 클래스 ID 찾기
         neighborhood = pred_mask[max(0, y - 1):min(pred_mask.shape[0], y + 2),
                        max(0, x - 1):min(pred_mask.shape[1], x + 2)]
         if neighborhood.size > 0:
             values, counts = np.unique(neighborhood, return_counts=True)
-            # 배경(0)은 제외하거나 가장 많은 클래스로 처리
             if len(values) > 1 or (len(values) == 1 and values[0] != 0):
                 most_common = values[np.argmax(counts)]
                 improved_mask[y, x] = most_common
-
     return improved_mask
 
 class Demo:
-    """학습 시 검증 변환과 정확히 일치하는 데모 인터페이스"""
-
     def __init__(
             self,
             checkpoint_path: str,
@@ -259,39 +190,28 @@ class Demo:
         self.input_size = input_size
         self.mode = mode
 
-        # 파싱 모델 로드
-        self.model = ParsingModel(
-            num_classes=num_classes,
-            backbone_pretrained=False
-        )
+        self.model = ParsingModel(num_classes=num_classes, backbone_pretrained=False)
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint['state_dict'])
         self.model = self.model.to(self.device)
         self.model.eval()
 
-        # 모드에 따라 적절한 모듈 및 함수 임포트
         if self.mode == "model":
             from HumanParsing.analysis.birefnet import setup_model, load_dataset_stats, process_image_for_segmentation
-        else:  # tops 또는 bottoms
+        else:
             from ClothesParsing.analysis.birefnet import setup_model, load_dataset_stats, process_image_for_segmentation
 
-        # BiRefNet 모델 및 데이터셋 통계 로드
         self.birefnet_model = setup_model(token=birefnet_token)
         self.dataset_stats = load_dataset_stats(stats_file)
         self.process_func = process_image_for_segmentation
 
-        # 비율을 유지하면서 크기 조정
         self.transform = A.Compose([
             A.LongestMaxSize(max_size=max(input_size)),
-            A.PadIfNeeded(
-                min_height=input_size[0],
-                min_width=input_size[1],
-                border_mode=cv2.BORDER_CONSTANT,
-                value=(0, 0, 0)  # 'value' 대신 RGB 값 직접 지정
-            ),
+            A.PadIfNeeded(min_height=input_size[0], min_width=input_size[1], border_mode=cv2.BORDER_CONSTANT, value=(0, 0, 0)),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2()
         ])
+
     def preprocess_image(self, image: Union[str, np.ndarray]) -> Tuple[torch.Tensor, np.ndarray, Tuple[int, int]]:
         if isinstance(image, str):
             image = cv2.imread(image)
@@ -302,7 +222,6 @@ class Demo:
         original_h, original_w = image.shape[:2]
         original_image = image.copy()
         transformed = self.transform(image=image)
-
         return transformed['image'].unsqueeze(0), original_image, (original_h, original_w)
 
     def calculate_scale_and_padding(self, original_size: Tuple[int, int]) -> Tuple[float, Tuple[int, int, int, int]]:
@@ -310,21 +229,19 @@ class Demo:
         max_size = max(self.input_size)
         scale = min(max_size / max(original_h, original_w), 1.0)
         scaled_h, scaled_w = int(original_h * scale), int(original_w * scale)
-
         pad_h = max(0, self.input_size[0] - scaled_h)
         pad_w = max(0, self.input_size[1] - scaled_w)
         pad_top = pad_h // 2
         pad_bottom = pad_h - pad_top
         pad_left = pad_w // 2
         pad_right = pad_w - pad_left
-
         return scale, (pad_top, pad_bottom, pad_left, pad_right)
 
     @torch.no_grad()
     def predict(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """이미지 배열을 입력받아 세그멘테이션 예측"""
         image_rgb = image.copy()
-        if image_rgb.shape[2] == 4:  # RGBA인 경우 RGB로 변환
+        if image_rgb.shape[2] == 4:
             image_rgb = image_rgb[:, :, :3]
 
         original_h, original_w = image_rgb.shape[:2]
@@ -335,7 +252,6 @@ class Demo:
         outputs = self.model(x)
         pred = torch.argmax(outputs, dim=1)[0].cpu().numpy()
 
-        # 패딩 제거 및 원본 크기로 복원
         pad_top, pad_bottom, pad_left, pad_right = padding
         scaled_h = int(original_h * scale)
         scaled_w = int(original_w * scale)
@@ -347,55 +263,46 @@ class Demo:
         else:
             pred_unpadded = pred
 
-        # 원래 이미지 크기로 복원
-        pred_resized = cv2.resize(
-            pred_unpadded,
-            (original_w, original_h),
-            interpolation=cv2.INTER_NEAREST
-        )
-
+        pred_resized = cv2.resize(pred_unpadded, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
         return pred_resized, original_image
+
+    def get_bounding_box(self, mask):
+        """마스크에서 바운딩 박스를 계산"""
+        rows = np.any(mask, axis=1)
+        cols = np.any(mask, axis=0)
+        if not rows.any() or not cols.any():
+            return 0, 0, 0, 0
+        y1, y2 = np.where(rows)[0][[0, -1]]
+        x1, x2 = np.where(cols)[0][[0, -1]]
+        return x1, y1, x2 - x1, y2 - y1
 
     def process_and_segment(self, image_path, canvas_size=(720, 1280)):
         """배경 제거 -> 세그멘테이션 -> 앤티앨리어싱 처리 원스톱 파이프라인"""
-        # 1. 원본 이미지 로드
         original_image = cv2.imread(image_path)
         if original_image is None:
             raise ValueError(f"Failed to load image from {image_path}")
         original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
 
-        # 2. 배경 제거 및 캔버스 배치
-        processed_image, person_mask = self.process_func(
+        # 변환 정보도 받아옴
+        processed_image, person_mask, original_img, original_mask, transform_info = self.process_func(
             self.birefnet_model,
             original_image,
             self.dataset_stats,
             final_canvas=canvas_size
         )
 
-        # 3. 세그멘테이션 예측
+        if transform_info is None:
+            # 사람/물체가 감지되지 않은 경우
+            return None, None, None, None, None
+
+        # 세그멘테이션 예측
         pred_mask, _ = self.predict(processed_image)
-
-        # 3.5. 오분류 제거 (작은 영역 필터링)
         clean_pred_mask = remove_misclassification(pred_mask, min_area=20)
-
         boundaies_mask = class_boundaries(clean_pred_mask)
 
-        # 4. 개선된 엣지 블러 적용 [개선]
-        antialiased_image = apply_edge_processing(
-            processed_image,
-            person_mask,
-            kernel_size=5,
-            sigma=1.5
-        )
-
-        # 5. 정확한 마스크 기반 이미지 생성
-        final_segmented_image = apply_exact_mask_from_parsing(
-            antialiased_image,
-            person_mask,
-            boundaies_mask
-        )
-
-        # 6. 결과 생성
+        # 안티앨리어싱 및 결과 생성
+        antialiased_image = apply_edge_processing(processed_image, person_mask, kernel_size=5, sigma=1.5)
+        final_segmented_image = apply_exact_mask_from_parsing(antialiased_image, person_mask, boundaies_mask)
         overlay_image, pure_mask = visualize_classes_separately(
             image=final_segmented_image[:, :, :3],
             prediction=boundaies_mask,
@@ -403,37 +310,62 @@ class Demo:
             alpha=0.7
         )
 
-        return final_segmented_image, boundaies_mask, overlay_image, pure_mask
+        # 세그멘테이션 마스크를 원본 좌표계로 역변환
+        # 캔버스 위치 정보
+        x, y, pw, ph = transform_info['canvas_placement']
+        # 캔버스에서 객체 영역 추출
+        canvas_mask = np.zeros_like(boundaies_mask)
+        canvas_mask[y:y + ph, x:x + pw] = boundaies_mask[y:y + ph, x:x + pw]
+
+        # 원본 이미지의 바운딩 박스와 크기
+        orig_x, orig_y, orig_x2, orig_y2 = transform_info['original_bbox']
+        orig_w, orig_h = transform_info['original_size']
+
+        # 원본 크기에 맞는 마스크 생성
+        orig_mask = np.zeros((orig_h, orig_w), dtype=boundaies_mask.dtype)
+
+        # 원본 이미지의 객체 영역에 맞춰 마스크 리사이징 및 위치 조정
+        obj_w, obj_h = orig_x2 - orig_x + 1, orig_y2 - orig_y + 1
+        if pw > 0 and ph > 0:
+            # 마스크를 캔버스 위치에서 추출해 원본 객체 크기로 리사이징
+            obj_mask = cv2.resize(canvas_mask[y:y + ph, x:x + pw], (obj_w, obj_h), interpolation=cv2.INTER_NEAREST)
+            # 원본 위치에 배치
+            orig_mask[orig_y:orig_y2 + 1, orig_x:orig_x2 + 1] = obj_mask
+
+        # 원본 이미지에 마스크 적용
+        overlay_original, _ = visualize_classes_separately(
+            image=original_img,
+            prediction=orig_mask,
+            mode=self.mode,
+            alpha=0.7
+        )
+
+        return final_segmented_image, boundaies_mask, overlay_image, pure_mask, overlay_original
 
     def run_and_save(self, image_path, save_dir, alpha=0.7, max_classes=None):
         """배경 제거 + 세그멘테이션 + 앤티앨리어싱 처리 결과 저장"""
         os.makedirs(save_dir, exist_ok=True)
         file_name = os.path.splitext(os.path.basename(image_path))[0]
 
-        processed_image, pred_mask, overlay_image, pure_mask = self.process_and_segment(image_path)
+        processed_image, pred_mask, overlay_image, pure_mask, overlay_original = self.process_and_segment(image_path)
 
-        # 결과 저장
         processed_path = os.path.join(save_dir, f"{file_name}_processed.png")
         overlay_path = os.path.join(save_dir, f"{file_name}_result.png")
         mask_path = os.path.join(save_dir, f"{file_name}_mask.png")
         pure_mask_path = os.path.join(save_dir, f"{file_name}_pure_mask.png")
+        original_overlay_path = os.path.join(save_dir, f"{file_name}_original_overlay.png")
 
-        # 처리된 이미지 저장
         cv2.imwrite(processed_path, cv2.cvtColor(processed_image, cv2.COLOR_RGB2BGR))
-
-        # 오버레이 이미지 저장
         cv2.imwrite(overlay_path, cv2.cvtColor(overlay_image, cv2.COLOR_RGB2BGR))
-
-        # 순수 마스크 저장
         cv2.imwrite(pure_mask_path, cv2.cvtColor(pure_mask, cv2.COLOR_RGB2BGR))
-
-        # 클래스별 마스크 저장
         save_mask_only(pred_mask, mask_path, mode=self.mode, max_classes=max_classes)
+        cv2.imwrite(original_overlay_path, cv2.cvtColor(overlay_original, cv2.COLOR_RGB2BGR))
 
         print(f"Saved processed image to {processed_path}")
         print(f"Saved overlay result to {overlay_path}")
         print(f"Saved pure mask to {pure_mask_path}")
         print(f"Saved class mask to {mask_path}")
+        print(f"Saved original overlay to {original_overlay_path}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Demo for Human Parsing with Background Removal')

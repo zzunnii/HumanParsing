@@ -67,7 +67,7 @@ def remove_background(model, np_image, threshold=0.5, image_size=(1024, 1024)):
     rgba = np.zeros((orig_h, orig_w, 4), dtype=np.uint8)
     rgba[:, :, :3] = np_image
     rgba[:, :, 3] = bin_mask
-    return rgba
+    return rgba, bin_mask  # 원본 마스크 추가 반환
 
 def extract_person_bbox(rgba_image):
     """알파>0 영역의 최소 bounding box로 크롭"""
@@ -113,45 +113,62 @@ def place_by_dataset_center(canvas_size, person_rgba, dataset_stats, bg_color=(2
             result[y:y + ph, x:x + pw, c] * (1 - alpha[:, :, 0]) +
             person_rgba[:, :, c] * alpha[:, :, 0]
         )
-    return result
+    return result, (x, y, pw, ph)  # 배치 위치 정보 추가 반환
 
 
 def process_image_for_segmentation(model, np_image, dataset_stats, final_canvas=(720, 1280)):
     """배경 제거 및 크기 조정 후 캔버스에 배치 - 파싱모델 입력용"""
     print("[INFO] Processing image with BiRefNet...")
     original_img = load_image_with_exif(np_image)
-    rgba = remove_background(model, original_img, threshold=0.5)
-    person_rgba, bbox = extract_person_bbox(rgba)
+    rgba, original_mask = remove_background(model, original_img, threshold=0.5)
+    person_rgba, orig_bbox = extract_person_bbox(rgba)
 
     if person_rgba is None:
         print("[WARN] No person found, returning blank canvas.")
         blank_image = np.full((final_canvas[1], final_canvas[0], 3), 255, dtype=np.uint8)
         blank_mask = np.zeros((final_canvas[1], final_canvas[0]), dtype=np.uint8)
-        return blank_image, blank_mask
+        transform_info = None
+        return blank_image, blank_mask, original_img, original_mask, transform_info
 
-    scaled_rgba = scale_person_by_dataset_stats(person_rgba, final_canvas, dataset_stats)
+    # 원본 바운딩 박스 정보 저장
+    orig_x, orig_y, orig_x2, orig_y2 = orig_bbox
+    orig_w, orig_h = orig_x2 - orig_x + 1, orig_y2 - orig_y + 1
+
+    # 스케일링 적용
+    canvas_w, canvas_h = final_canvas
+    ph, pw = person_rgba.shape[:2]
+    tgt_h_ratio = dataset_stats['person_height']['mean']
+    tgt_w_ratio = dataset_stats['person_width']['mean']
+    extra_scale = 1.2
+    target_h = int(tgt_h_ratio * canvas_h * extra_scale)
+    target_w = int(tgt_w_ratio * canvas_w * extra_scale)
+
+    # 스케일 계수 계산
+    scale_w = target_w / pw
+    scale_h = target_h / ph
+
+    scaled_rgba = cv2.resize(person_rgba, (target_w, target_h), interpolation=cv2.INTER_AREA)
 
     # 최종 이미지 생성
-    final = place_by_dataset_center(final_canvas, scaled_rgba, dataset_stats)
+    final, placement = place_by_dataset_center(final_canvas, scaled_rgba, dataset_stats)
 
     # 최종 마스크 생성
     final_mask = np.zeros((final_canvas[1], final_canvas[0]), dtype=np.uint8)
-    cw, ch = final_canvas
-    ph, pw = scaled_rgba.shape[:2]
-    cx_mean = dataset_stats['person_center_x']['mean']
-    cy_mean = dataset_stats['person_center_y']['mean']
-    center_x = int(cx_mean * cw)
-    center_y = int(cy_mean * ch)
-    x = center_x - pw // 2
-    y = center_y - ph // 2
+    x, y, pw, ph = placement
+    final_mask[y:y + ph, x:x + pw] = cv2.resize(
+        scaled_rgba[:, :, 3], (pw, ph), interpolation=cv2.INTER_NEAREST
+    )
 
-    # 경계 검사
-    if x < 0: x = 0
-    if y < 0: y = 0
-    if x + pw > cw: x = cw - pw
-    if y + ph > ch: y = ch - ph
+    # 변환 정보 저장 - 역변환에 필요한 모든 정보 포함
+    transform_info = {
+        'original_bbox': orig_bbox,
+        'original_size': (original_img.shape[1], original_img.shape[0]),
+        'cropped_size': (orig_w, orig_h),
+        'scaled_size': (target_w, target_h),
+        'canvas_placement': placement,
+        'canvas_size': final_canvas,
+        'scale_factors': (scale_w, scale_h),
+        'center_offset': (x - (canvas_w // 2 - pw // 2), y - (canvas_h // 2 - ph // 2))
+    }
 
-    # 마스크 복사
-    final_mask[y:y + ph, x:x + pw] = scaled_rgba[:, :, 3]
-
-    return final, final_mask
+    return final, final_mask, original_img, original_mask, transform_info
