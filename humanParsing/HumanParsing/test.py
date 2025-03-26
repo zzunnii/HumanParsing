@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument('--save-images', action='store_true',
                         help='Save visualization of predictions')
     parser.add_argument('--mode-select', type=str, default='model',
-                        help='choose your mode: model or item')
+                        help='choose your mode: model')
 
     return parser.parse_args()
 
