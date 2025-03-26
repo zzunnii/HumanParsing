@@ -390,7 +390,7 @@ class CombinedLoss(nn.Module):
             ce_weight: float = 1.0,
             dice_weight: float = 1.0,
             focal_weight: float = 0.0,
-            boundary_weight: float = 0.0,
+            boundary_weight: float = 0.2,
             lovasz_weight: float = 0.0,
             class_weights: Optional[Union[List[float], torch.Tensor]] = None,
             ignore_index: int = 255,

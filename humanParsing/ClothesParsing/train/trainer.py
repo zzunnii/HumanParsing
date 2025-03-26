@@ -7,8 +7,8 @@ from torch.cuda.amp import autocast, GradScaler  # GradScaler는 여기서 가�
 from torch.utils.data import DataLoader
 from typing import Dict, Optional, Tuple
 
-from ..data import DataPrefetcher
-from ..utils import (
+from humanParsing.ClothesParsing.data.dataloader import DataPrefetcher
+from humanParsing.ClothesParsing.utils import(
     AverageMeter,
     SegmentationMetric,
     TensorboardLogger,

@@ -10,7 +10,7 @@ class Visualizer:
     def __init__(
             self,
             num_classes: int,
-            mode: str = "",
+            mode: str = "bottoms",
             class_names: Optional[List[str]] = None,
             class_colors: Optional[List[Tuple[int, int, int]]] = None
     ):

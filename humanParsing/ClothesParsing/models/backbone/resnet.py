@@ -3,6 +3,8 @@ import torch.nn as nn
 import torchvision.models as models
 from typing import Dict, List
 
+from torchvision.models import Wide_ResNet50_2_Weights
+
 
 class ResNetBackbone(nn.Module):
     """ResNet101 backbone with FPN for semantic segmentation.

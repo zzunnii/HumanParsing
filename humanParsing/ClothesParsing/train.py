@@ -13,19 +13,19 @@ from torch.utils.data import DataLoader, Subset
 from pathlib import Path
 
 # 현재 디렉토리 구조에 맞게 수정
-from .models import ParsingModel
-from .data import build_dataset, build_transforms, build_dataloader
-from .train import build_criterion, build_optimizer, build_scheduler, Trainer
-from .utils import Logger, Visualizer
+from models import ParsingModel
+from data import build_dataset, build_transforms, build_dataloader
+from train import build_criterion, build_optimizer, build_scheduler, Trainer
+from utils import Logger, Visualizer
 import datetime
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train Human Parsing Model')
 
     # 학습 모드 설정 - 대분류 옵션 추가
-    parser.add_argument('--mode-select', type=str, default='tops',
+    parser.add_argument('--mode-select', type=str, default='bottoms',
                         choices=['tops', 'bottoms'],
-                        help='Choose training mode: model, tops, bottoms')
+                        help='Choose training mode: tops, bottoms')
 
     # 기본 설정에 quick test 옵션 추가
     parser.add_argument('--quick-test', action='store_true', default=False,
@@ -39,7 +39,7 @@ def parse_args():
 
     # Data configuration - 전처리된 데이터 경로 사용
     parser.add_argument('--data-root', type=str,
-                        default="",
+                        default="./parsingData/preprocessed",
                         help='Root directory of preprocessed data')
 
     # 원본 COCO annotation 파일 대신, 전처리 단계에서 생성한 person 구조를 사용하므로 annotation 파일은 더 이상 필요하지 않을 수 있음.
@@ -49,9 +49,6 @@ def parse_args():
     # Model configuration
     parser.add_argument('--backbone-pretrained', action='store_true', default=True,
                         help='Use pretrained backbone')
-    parser.add_argument('--backbone', type=str, default='resnet152',
-                        choices=['resnet50', 'resnet101', 'resnet152'],
-                        help='Backbone model')
     parser.add_argument('--num-classes', type=int, default=None,
                         help='Number of classes (auto-configured based on mode)')
     parser.add_argument('--fpn-channels', type=int, default=256,
@@ -148,27 +145,6 @@ def configure_args_by_mode(args):
     if args.output_dir is None:
         args.output_dir = f"output/{args.mode_select}_{timestamp}"
 
-def calculate_class_weights(dataset, num_classes):
-    """데이터셋에서 클래스별 픽셀 빈도를 계산해 가중치 생성"""
-    class_counts = torch.zeros(num_classes, dtype=torch.float32)
-    total_pixels = 0
-
-    # 데이터셋의 모든 샘플에서 클래스 빈도 계산
-    for i in range(len(dataset)):
-        mask = dataset[i]['mask'].flatten()
-        for cls in range(num_classes):
-            class_counts[cls] += (mask == cls).sum().item()
-        total_pixels += mask.numel()
-
-    # 빈도가 0인 클래스에 대해 작은 값을 추가해 0으로 나누기 방지
-    class_counts = class_counts + 1e-6
-    # 클래스 빈도의 역수를 가중치로 사용
-    class_weights = 1.0 / class_counts
-    # 가중치를 정규화 (합이 num_classes가 되도록)
-    class_weights = class_weights / class_weights.sum() * num_classes
-    # args.class_weights 형식에 맞게 문자열로 변환
-    return ",".join(map(str, class_weights.tolist()))
-
 def get_subset_indices(dataset_size, subset_size=100):
     """Get random subset of indices"""
     indices = np.random.permutation(dataset_size)[:subset_size]
@@ -218,9 +194,6 @@ def train_single_model(args):
     logger.info(f"Train dataset size: {len(train_dataset)}")
     logger.info(f"Val dataset size: {len(val_dataset)}")
 
-    # 클래스 가중치 동적 계산
-    if args.class_weights is None:  # 기본 가중치가 설정되지 않은 경우에만 계산
-        args.class_weights = calculate_class_weights(train_dataset, args.num_classes)
 
     train_loader = build_dataloader(
         dataset=train_dataset,
@@ -256,6 +229,7 @@ def train_single_model(args):
         ce_weight=args.ce_weight,
         dice_weight=args.dice_weight,
         focal_weight=args.focal_weight,
+        boundary_weight = 0.2
     )
 
     optimizer = build_optimizer(

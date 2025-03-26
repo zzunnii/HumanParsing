@@ -15,11 +15,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Test Human Parsing Model')
 
     # Basic configuration
-    parser.add_argument('--test-dir', type=str, default="",
+    parser.add_argument('--test-dir', type=str, default="./parsingData/preprocessed/item/test",
                         help='Preprocessed test data directory')
     parser.add_argument('--output-dir', type=str, default='test_results',
                         help='Directory to save test results')
-    parser.add_argument('--checkpoint', type=str, default=r"",
+    parser.add_argument('--checkpoint', type=str, default=r".\checkpoint_epoch17.pth",
                         help='Path to model checkpoint')
 
     # Model configuration
