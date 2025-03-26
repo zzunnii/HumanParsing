@@ -10,14 +10,6 @@ from albumentations.pytorch import ToTensorV2
 
 from HumanParsing.models import ParsingModel
 
-from HumanParsing.analysis.birefnet import (
-    setup_model as setup_birefnet_model,
-    load_dataset_stats,
-    process_image_for_segmentation
-)
-
-
-
 def visualize_classes_separately(image, prediction, mode="tops", alpha=0.7, max_classes=None):
     """각 클래스별로 별도 시각화"""
     ALL_CLASSES = {
@@ -134,25 +126,33 @@ def save_mask_only(prediction, save_path, mode="tops", max_classes=None):
     return mask_image
 
 
-def apply_thin_edge_blur(image, mask, kernel_size=3, sigma=0.5):
-    """마스크 경계선에 매우 얇은 블러 적용"""
+def apply_edge_processing(image, mask, kernel_size=5, sigma=1.0):
+    """개선된 경계 처리 함수"""
     # 마스크가 3채널인 경우 1채널로 변환
     if len(mask.shape) == 3:
         mask_gray = mask[:, :, 0]
     else:
         mask_gray = mask
 
-    # 더 작은 커널로 침식 적용 (가능한 얇은 경계선 생성)
+    # 경계 감지 (더 넓은 범위의 경계 포착)
     kernel = np.ones((3, 3), np.uint8)
-    mask_erode = cv2.erode(mask_gray, kernel, iterations=1)
-    edges = mask_gray - mask_erode
+    dilated = cv2.dilate(mask_gray, kernel, iterations=1)
+    eroded = cv2.erode(mask_gray, kernel, iterations=1)
+    edges = dilated - eroded  # 더 두꺼운 경계선 생성
 
-    # 매우 약한 가우시안 블러
+    # 블러 적용 (더 큰 커널과 적절한 시그마 값)
     blurred = cv2.GaussianBlur(image, (kernel_size, kernel_size), sigma)
 
-    # 경계선에만 블러 적용
+    # 경계선에만 블러 적용 (가중치 적용)
     edges_3d = np.repeat(edges[:, :, np.newaxis], 3, axis=2)
-    result = np.where(edges_3d > 0, blurred, image)
+
+    # 점진적 블렌딩을 위한 가중치 맵 생성
+    weight_map = edges_3d.astype(np.float32) / 255.0
+
+    # 원본과 블러 이미지 블렌딩
+    result = image.copy()
+    for i in range(3):
+        result[:, :, i] = image[:, :, i] * (1 - weight_map[:, :, i]) + blurred[:, :, i] * weight_map[:, :, i]
 
     return result
 
@@ -187,8 +187,6 @@ def remove_misclassification(pred_mask, min_area=50):
 
 def apply_exact_mask_from_parsing(original_image, person_mask, pred_mask):
     """원래 이미지에서 파싱 마스크를 이용해 정확하게 경계 적용"""
-    # person_mask는 배경 제거된 사람 마스크
-    # pred_mask는 세그멘테이션 마스크
 
     # 배경은 투명하게 처리
     result = np.zeros((original_image.shape[0], original_image.shape[1], 4), dtype=np.uint8)
@@ -206,6 +204,42 @@ def apply_exact_mask_from_parsing(original_image, person_mask, pred_mask):
 
     return result
 
+
+def class_boundaries(pred_mask):
+    """클래스 간 경계 개선"""
+    # 경계 감지 단계
+    edges = np.zeros_like(pred_mask, dtype=np.uint8)  # uint8 타입으로 명시
+    for class_id in range(1, pred_mask.max() + 1):
+        class_mask = (pred_mask == class_id).astype(np.uint8)
+        # 경계 감지
+        contours, _ = cv2.findContours(class_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # 경계선 그리기 (두께 조절)
+        cv2.drawContours(edges, contours, -1, 1, thickness=2)
+
+    # 경계 부분 부드럽게 처리
+    kernel = np.ones((3, 3), np.uint8)
+    dilated_edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # 경계 부분에서 블렌딩 영역 생성
+    blending_region = dilated_edges > 0
+
+    # 클래스 ID를 보존하면서 마스크 반환
+    improved_mask = pred_mask.copy()
+
+    # 경계 부분은 주변 픽셀의 가장 빈번한 값으로 대체 (노이즈 감소)
+    y_indices, x_indices = np.where(blending_region)
+    for y, x in zip(y_indices, x_indices):
+        # 3x3 주변 영역에서 가장 빈번한 클래스 ID 찾기
+        neighborhood = pred_mask[max(0, y - 1):min(pred_mask.shape[0], y + 2),
+                       max(0, x - 1):min(pred_mask.shape[1], x + 2)]
+        if neighborhood.size > 0:
+            values, counts = np.unique(neighborhood, return_counts=True)
+            # 배경(0)은 제외하거나 가장 많은 클래스로 처리
+            if len(values) > 1 or (len(values) == 1 and values[0] != 0):
+                most_common = values[np.argmax(counts)]
+                improved_mask[y, x] = most_common
+
+    return improved_mask
 
 class Demo:
     """학습 시 검증 변환과 정확히 일치하는 데모 인터페이스"""
@@ -253,12 +287,11 @@ class Demo:
                 min_height=input_size[0],
                 min_width=input_size[1],
                 border_mode=cv2.BORDER_CONSTANT,
-                value=0,
+                value=(0, 0, 0)  # 'value' 대신 RGB 값 직접 지정
             ),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2()
         ])
-
     def preprocess_image(self, image: Union[str, np.ndarray]) -> Tuple[torch.Tensor, np.ndarray, Tuple[int, int]]:
         if isinstance(image, str):
             image = cv2.imread(image)
@@ -331,7 +364,7 @@ class Demo:
             raise ValueError(f"Failed to load image from {image_path}")
         original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
 
-        # 2. 배경 제거 및 캔버스 배치 (임포트된 모드별 함수 사용)
+        # 2. 배경 제거 및 캔버스 배치
         processed_image, person_mask = self.process_func(
             self.birefnet_model,
             original_image,
@@ -343,23 +376,34 @@ class Demo:
         pred_mask, _ = self.predict(processed_image)
 
         # 3.5. 오분류 제거 (작은 영역 필터링)
-        clean_pred_mask = remove_misclassification(pred_mask, min_area=20)  # 더 작은 영역 필터링
+        clean_pred_mask = remove_misclassification(pred_mask, min_area=20)
 
-        # 4. 매우 얇은 엣지 블러 적용 (sigma 값을 더 낮게 설정)
-        antialiased_image = apply_thin_edge_blur(processed_image, person_mask, kernel_size=3, sigma=0.5)
+        boundaies_mask = class_boundaries(clean_pred_mask)
+
+        # 4. 개선된 엣지 블러 적용 [개선]
+        antialiased_image = apply_edge_processing(
+            processed_image,
+            person_mask,
+            kernel_size=5,
+            sigma=1.5
+        )
 
         # 5. 정확한 마스크 기반 이미지 생성
-        final_segmented_image = apply_exact_mask_from_parsing(antialiased_image, person_mask, clean_pred_mask)
+        final_segmented_image = apply_exact_mask_from_parsing(
+            antialiased_image,
+            person_mask,
+            boundaies_mask
+        )
 
-        # 6. 결과 생성 (RGBA 이미지에서 RGB만 추출하여 시각화)
+        # 6. 결과 생성
         overlay_image, pure_mask = visualize_classes_separately(
-            image=final_segmented_image[:, :, :3],  # RGB 채널만 사용
-            prediction=clean_pred_mask,  # 정제된 마스크 사용
+            image=final_segmented_image[:, :, :3],
+            prediction=boundaies_mask,
             mode=self.mode,
             alpha=0.7
         )
 
-        return final_segmented_image, clean_pred_mask, overlay_image, pure_mask
+        return final_segmented_image, boundaies_mask, overlay_image, pure_mask
 
     def run_and_save(self, image_path, save_dir, alpha=0.7, max_classes=None):
         """배경 제거 + 세그멘테이션 + 앤티앨리어싱 처리 결과 저장"""
@@ -394,7 +438,8 @@ class Demo:
 def parse_args():
     parser = argparse.ArgumentParser(description='Demo for Human Parsing with Background Removal')
     parser.add_argument('--image', type=str,
-                        required=True, help='Path to image')
+                        default=r"C:\Users\tjdwn\OneDrive\Desktop\test.jpg",
+                        help='Path to input image')
     parser.add_argument('--output-dir', type=str, default='demo_results',
                         help='Directory to save results')
     parser.add_argument('--alpha', type=float, default=0.4,
